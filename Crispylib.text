@@ -303,10 +303,6 @@ function CrispyLib.Notify(cfg)
     })
     Round(notif,10); Stroke(notif,Theme.Border,1)
 
-    Create("Frame",{  -- top stripe
-        Size=UDim2.new(1,0,0,2), BackgroundColor3=tc,
-        BorderSizePixel=0, ZIndex=1002, Parent=notif,
-    })
     local acc=Create("Frame",{
         Size=UDim2.new(0,3,1,-18), Position=UDim2.new(0,9,0.5,0),
         AnchorPoint=Vector2.new(0,0.5), BackgroundColor3=tc,
@@ -1429,7 +1425,7 @@ function CrispyLib.CreateWindow(cfg)
             return obj
         end
 
-        -- ── Color Picker ───────────────────────────────────────────────
+        -- ── Color Picker ─────────────────────────────────────────────────────
         function Tab:AddColorPicker(cpc)
             cpc=cpc or{}
             local val=cpc.Default or Color3.fromRGB(255,255,255)
@@ -1449,34 +1445,77 @@ function CrispyLib.CreateWindow(cfg)
             })
 
             local pOpen=false
+            local CP_W,CP_H=220,214
             local pFrame=Create("Frame",{
-                Size=UDim2.new(0,206,0,0),
+                Size=UDim2.new(0,CP_W,0,0),
                 BackgroundColor3=Theme.DropdownBg, BorderSizePixel=0,
                 ZIndex=Z.Popup, ClipsDescendants=true, Visible=false, Parent=sg,
             })
             Round(pFrame,10); Stroke(pFrame,Theme.Border,1)
 
-            local sbBox=Create("ImageLabel",{
+            -- SV box: hue-coloured bg + white-to-hue horizontal gradient + transparent-to-black vertical gradient
+            local sbBox=Create("Frame",{
                 Size=UDim2.new(1,-16,0,130), Position=UDim2.new(0,8,0,8),
                 BackgroundColor3=Color3.fromRGB(255,0,0),
-                Image="rbxassetid://6923790725",
-                ZIndex=Z.Popup+1, Parent=pFrame,
+                BorderSizePixel=0, ZIndex=Z.Popup+1, Parent=pFrame,
             })
             Round(sbBox,6)
+            local sbHueGrad=Create("UIGradient",{
+                Color=ColorSequence.new({
+                    ColorSequenceKeypoint.new(0, Color3.fromRGB(255,255,255)),
+                    ColorSequenceKeypoint.new(1, Color3.fromRGB(255,0,0)),
+                }),
+                Rotation=0, Parent=sbBox,
+            })
+            -- Vertical dark overlay (top transparent → bottom black)
+            local sbDark=Create("Frame",{
+                Size=UDim2.new(1,0,1,0),
+                BackgroundColor3=Color3.fromRGB(0,0,0), BorderSizePixel=0,
+                ZIndex=Z.Popup+2, Parent=sbBox,
+            })
+            Round(sbDark,6)
+            Create("UIGradient",{
+                Transparency=NumberSequence.new({
+                    NumberSequenceKeypoint.new(0, 1),
+                    NumberSequenceKeypoint.new(1, 0),
+                }),
+                Rotation=90, Parent=sbDark,
+            })
+            local sbBtn=Create("TextButton",{
+                Size=UDim2.new(1,0,1,0), BackgroundTransparency=1,
+                Text="", ZIndex=Z.Popup+3, Parent=sbBox,
+            })
             local sbKnob=Create("Frame",{
                 Size=UDim2.new(0,12,0,12), AnchorPoint=Vector2.new(0.5,0.5),
                 BackgroundColor3=Color3.fromRGB(255,255,255),
-                BorderSizePixel=0, ZIndex=Z.Popup+2, Parent=sbBox,
+                BorderSizePixel=0, ZIndex=Z.Popup+4, Parent=sbBox,
             })
             Round(sbKnob,6)
-            Create("UIStroke",{Color=Color3.fromRGB(0,0,0),Transparency=0.6,Thickness=1,Parent=sbKnob})
+            Create("UIStroke",{Color=Color3.fromRGB(0,0,0),Transparency=0.5,Thickness=1.5,Parent=sbKnob})
 
-            local hBar=Create("ImageLabel",{
+            -- Hue bar: full rainbow gradient
+            local hBar=Create("Frame",{
                 Size=UDim2.new(1,-16,0,14), Position=UDim2.new(0,8,0,146),
-                Image="rbxassetid://6923790674",
-                ZIndex=Z.Popup+1, Parent=pFrame,
+                BackgroundColor3=Color3.fromRGB(255,255,255),
+                BorderSizePixel=0, ZIndex=Z.Popup+1, Parent=pFrame,
             })
             Round(hBar,4)
+            Create("UIGradient",{
+                Color=ColorSequence.new({
+                    ColorSequenceKeypoint.new(0/6,   Color3.fromRGB(255,0,0)),
+                    ColorSequenceKeypoint.new(1/6,   Color3.fromRGB(255,255,0)),
+                    ColorSequenceKeypoint.new(2/6,   Color3.fromRGB(0,255,0)),
+                    ColorSequenceKeypoint.new(3/6,   Color3.fromRGB(0,255,255)),
+                    ColorSequenceKeypoint.new(4/6,   Color3.fromRGB(0,0,255)),
+                    ColorSequenceKeypoint.new(5/6,   Color3.fromRGB(255,0,255)),
+                    ColorSequenceKeypoint.new(1,     Color3.fromRGB(255,0,0)),
+                }),
+                Rotation=0, Parent=hBar,
+            })
+            local hBtn=Create("TextButton",{
+                Size=UDim2.new(1,0,1,0), BackgroundTransparency=1,
+                Text="", ZIndex=Z.Popup+2, Parent=hBar,
+            })
             local hKnob=Create("Frame",{
                 Size=UDim2.new(0,10,1,4), AnchorPoint=Vector2.new(0.5,0.5),
                 Position=UDim2.new(0,0,0.5,0),
@@ -1487,7 +1526,7 @@ function CrispyLib.CreateWindow(cfg)
             Create("UIStroke",{Color=Color3.fromRGB(80,80,80),Thickness=1,Parent=hKnob})
 
             local cPrev=Create("Frame",{
-                Size=UDim2.new(1,-16,0,22), Position=UDim2.new(0,8,0,168),
+                Size=UDim2.new(1,-16,0,24), Position=UDim2.new(0,8,0,168),
                 BackgroundColor3=val, BorderSizePixel=0,
                 ZIndex=Z.Popup+1, Parent=pFrame,
             })
@@ -1496,8 +1535,14 @@ function CrispyLib.CreateWindow(cfg)
             local h,s,br=Color3.toHSV(val)
             local function UpdColor()
                 val=Color3.fromHSV(h,s,br)
-                swatch.BackgroundColor3=val; cPrev.BackgroundColor3=val
-                sbBox.BackgroundColor3=Color3.fromHSV(h,1,1)
+                swatch.BackgroundColor3=val
+                cPrev.BackgroundColor3=val
+                local pureHue=Color3.fromHSV(h,1,1)
+                sbBox.BackgroundColor3=pureHue
+                sbHueGrad.Color=ColorSequence.new({
+                    ColorSequenceKeypoint.new(0, Color3.fromRGB(255,255,255)),
+                    ColorSequenceKeypoint.new(1, pureHue),
+                })
                 sbKnob.Position=UDim2.new(s,-6,1-br,-6)
                 hKnob.Position=UDim2.new(h,-5,0.5,0)
                 CrispyLib._flags[cpc.Flag]=val; pcall(cb,val)
@@ -1514,10 +1559,10 @@ function CrispyLib.CreateWindow(cfg)
                 local a=hBar.AbsolutePosition; local z=hBar.AbsoluteSize
                 h=math.clamp((pos.X-a.X)/z.X,0,1); UpdColor()
             end
-            sbBox.InputBegan:Connect(function(i)
+            sbBtn.InputBegan:Connect(function(i)
                 if i.UserInputType==Enum.UserInputType.MouseButton1 then dSB=true;SBDrag(i.Position) end
             end)
-            hBar.InputBegan:Connect(function(i)
+            hBtn.InputBegan:Connect(function(i)
                 if i.UserInputType==Enum.UserInputType.MouseButton1 then dH=true;HDrag(i.Position) end
             end)
             UserInputService.InputChanged:Connect(function(i)
@@ -1533,7 +1578,7 @@ function CrispyLib.CreateWindow(cfg)
             local function ReposPicker()
                 local abp=swatch.AbsolutePosition
                 local abs=swatch.AbsoluteSize
-                pFrame.Position=UDim2.new(0,abp.X-206+abs.X,0,abp.Y+abs.Y+4)
+                pFrame.Position=UDim2.new(0,abp.X-CP_W+abs.X,0,abp.Y+abs.Y+4)
             end
 
             swBtn.MouseButton1Click:Connect(function()
@@ -1541,9 +1586,9 @@ function CrispyLib.CreateWindow(cfg)
                 if pOpen then
                     ReposPicker()
                     pFrame.Visible=true
-                    Tween(pFrame,{Size=UDim2.new(0,206,0,200)},TI_MID)
+                    Tween(pFrame,{Size=UDim2.new(0,CP_W,0,CP_H)},TI_MID)
                 else
-                    Tween(pFrame,{Size=UDim2.new(0,206,0,0)},TI_MID)
+                    Tween(pFrame,{Size=UDim2.new(0,CP_W,0,0)},TI_MID)
                     task.delay(0.22,function() pFrame.Visible=false end)
                 end
             end)
@@ -1557,6 +1602,7 @@ function CrispyLib.CreateWindow(cfg)
             RegFlag(cpc.Flag, function()return val end, function(v)obj:Set(v,true)end)
             return obj
         end
+
 
         -- ── Separator / Spacer ─────────────────────────────────────────
         function Tab:AddSeparator()
