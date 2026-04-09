@@ -1,0 +1,1852 @@
+--[[
+    Crispylib - Lua UI Library v2
+    Inspired by the Xenon Hub macOS-style GUI design.
+
+    ── BASIC USAGE ──────────────────────────────────────────────────────────────
+    local Crispylib = loadstring(game:HttpGet("..."))()
+
+    -- Loading screen (optional, call FIRST)
+    local Loader = Crispylib.CreateLoadingScreen({ Title = "Xenon Hub", Subtitle = "Loading..." })
+    Loader:SetStatus("Connecting...")
+    Loader:SetProgress(0.5)
+    Loader:Finish()   -- fades out and destroys
+
+    -- Create window (ConfigName enables the built-in Profiles tab + auto-save)
+    local Window = Crispylib.CreateWindow({
+        Title      = "Xenon Hub",
+        Subtitle   = "My Script",
+        ConfigName = "MyScript",      -- set this to enable config features
+        AutoLoad   = true,            -- auto-load "default" profile on start
+    })
+
+    Window:AddSidebarSection("Main")
+    local Tab = Window:AddTab({ Name = "General", Icon = "⚙" })
+
+    Tab:AddSection({ Title = "⚡ Auto Reroll", Description = "Uses Power Shards automatically." })
+
+    -- Flag = config key for saving/loading
+    local toggle = Tab:AddToggle({
+        Name        = "Enabled",
+        Description = "Automatically use Power Shards.",
+        Default     = false,
+        Flag        = "AutoReroll_Enabled",
+        Callback    = function(val) print("Toggle:", val) end,
+    })
+
+    local dropdown = Tab:AddDropdown({
+        Name        = "Preferred Powers",
+        Description = "Stop when one of these is obtained.",
+        Options     = { "[Mythical] Colossus", "[Legendary] Abyssal", "[Epic] Reaper" },
+        Multi       = true,
+        Default     = {},
+        Flag        = "AutoReroll_Powers",
+        Callback    = function(val) print("Selected:", val) end,
+    })
+
+    -- Manual config control (Profiles tab does this automatically)
+    Crispylib.Config.Save("myprofile")    -- save to file
+    Crispylib.Config.Load("myprofile")    -- load + apply
+    local json = Crispylib.Config.Export()  -- returns JSON string
+    Crispylib.Config.Import(json)           -- apply from JSON string
+]]
+
+-- ────────────────────────────────────────────────────────────────────────────
+--  SERVICES
+-- ────────────────────────────────────────────────────────────────────────────
+local Players          = game:GetService("Players")
+local TweenService     = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local RunService       = game:GetService("RunService")
+local CoreGui          = game:GetService("CoreGui")
+local HttpService      = game:GetService("HttpService")
+
+local LocalPlayer = Players.LocalPlayer
+local Mouse       = LocalPlayer:GetMouse()
+
+-- ────────────────────────────────────────────────────────────────────────────
+--  THEME
+-- ────────────────────────────────────────────────────────────────────────────
+local Theme = {
+    WindowBg          = Color3.fromRGB(28,  28,  30),
+    SidebarBg         = Color3.fromRGB(22,  22,  24),
+    ContentBg         = Color3.fromRGB(36,  36,  38),
+    TitleBarBg        = Color3.fromRGB(32,  32,  34),
+
+    TitleText         = Color3.fromRGB(230, 230, 235),
+    SubtitleText      = Color3.fromRGB(140, 140, 150),
+    LabelText         = Color3.fromRGB(210, 210, 215),
+    DescText          = Color3.fromRGB(120, 120, 130),
+    ValueText         = Color3.fromRGB(180, 180, 188),
+    SectionLabel      = Color3.fromRGB(90,  90,  100),
+    SearchPlaceholder = Color3.fromRGB(100, 100, 110),
+
+    TabHover          = Color3.fromRGB(40,  40,  45),
+    TabActive         = Color3.fromRGB(10,  132, 255),
+    TabActiveText     = Color3.fromRGB(255, 255, 255),
+    TabInactiveText   = Color3.fromRGB(200, 200, 208),
+
+    ToggleOff         = Color3.fromRGB(68,  68,  75),
+    ToggleOn          = Color3.fromRGB(10,  132, 255),
+    ToggleKnob        = Color3.fromRGB(255, 255, 255),
+
+    Separator         = Color3.fromRGB(50,  50,  55),
+
+    DropdownBg        = Color3.fromRGB(32,  32,  34),
+    DropdownBorder    = Color3.fromRGB(60,  60,  65),
+    DropdownItemHover = Color3.fromRGB(48,  48,  52),
+
+    InputBg           = Color3.fromRGB(32,  32,  34),
+    InputBorder       = Color3.fromRGB(60,  60,  65),
+
+    ScrollbarThumb    = Color3.fromRGB(80,  80,  88),
+
+    CloseBtn          = Color3.fromRGB(255,  95,  86),
+    MinBtn            = Color3.fromRGB(255, 189,  46),
+    MaxBtn            = Color3.fromRGB( 39, 201,  63),
+
+    -- Notification
+    NotifBg           = Color3.fromRGB(38,  38,  42),
+    NotifBorder       = Color3.fromRGB(60,  60,  65),
+    NotifSuccess      = Color3.fromRGB(52,  199, 89),
+    NotifError        = Color3.fromRGB(255,  69,  58),
+    NotifInfo         = Color3.fromRGB(10,  132, 255),
+    NotifWarn         = Color3.fromRGB(255, 159,  10),
+
+    -- Loading screen
+    LoaderBg          = Color3.fromRGB(18,  18,  20),
+    LoaderBarBg       = Color3.fromRGB(40,  40,  45),
+    LoaderBarFill     = Color3.fromRGB(10,  132, 255),
+}
+
+-- ────────────────────────────────────────────────────────────────────────────
+--  CONSTANTS
+-- ────────────────────────────────────────────────────────────────────────────
+local WIN_W      = 760
+local WIN_H      = 480
+local SIDEBAR_W  = 200
+local TITLEBAR_H = 52
+local TWEEN_INFO = TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local TWEEN_SLOW = TweenInfo.new(0.28, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local TWEEN_EASE = TweenInfo.new(0.35, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+
+-- ────────────────────────────────────────────────────────────────────────────
+--  UTILITY HELPERS
+-- ────────────────────────────────────────────────────────────────────────────
+local function Create(class, props, children)
+    local obj = Instance.new(class)
+    for k, v in pairs(props or {}) do
+        if k ~= "Parent" then obj[k] = v end
+    end
+    for _, child in ipairs(children or {}) do child.Parent = obj end
+    if props and props.Parent then obj.Parent = props.Parent end
+    return obj
+end
+
+local function Tween(obj, goals, info)
+    TweenService:Create(obj, info or TWEEN_INFO, goals):Play()
+end
+
+local function MakeDraggable(titleBar, frame)
+    local dragging, dragStart, startPos
+    titleBar.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging  = true
+            dragStart = input.Position
+            startPos  = frame.Position
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+            local delta = input.Position - dragStart
+            frame.Position = UDim2.new(
+                startPos.X.Scale, startPos.X.Offset + delta.X,
+                startPos.Y.Scale, startPos.Y.Offset + delta.Y
+            )
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
+    end)
+end
+
+local function Round(frame, radius)
+    Create("UICorner", { CornerRadius = UDim.new(0, radius or 8), Parent = frame })
+end
+
+local function Stroke(frame, color, thickness)
+    Create("UIStroke", { Color = color or Theme.Separator, Thickness = thickness or 1, Parent = frame })
+end
+
+local function AddPadding(frame, top, bottom, left, right)
+    Create("UIPadding", {
+        PaddingTop = UDim.new(0, top or 0), PaddingBottom = UDim.new(0, bottom or 0),
+        PaddingLeft = UDim.new(0, left or 0), PaddingRight = UDim.new(0, right or 0),
+        Parent = frame,
+    })
+end
+
+local function ListLayout(frame, dir, spacing)
+    Create("UIListLayout", {
+        FillDirection = dir or Enum.FillDirection.Vertical,
+        SortOrder     = Enum.SortOrder.LayoutOrder,
+        Padding       = UDim.new(0, spacing or 0),
+        Parent        = frame,
+    })
+end
+
+local function MakeScrollFrame(parent, size, pos)
+    return Create("ScrollingFrame", {
+        Size                   = size or UDim2.new(1, 0, 1, 0),
+        Position               = pos  or UDim2.new(0, 0, 0, 0),
+        BackgroundTransparency = 1,
+        ScrollBarThickness     = 4,
+        ScrollBarImageColor3   = Theme.ScrollbarThumb,
+        BorderSizePixel        = 0,
+        CanvasSize             = UDim2.new(0, 0, 0, 0),
+        AutomaticCanvasSize    = Enum.AutomaticSize.Y,
+        Parent                 = parent,
+    })
+end
+
+-- ────────────────────────────────────────────────────────────────────────────
+--  CONFIG / SERIALISATION SYSTEM
+-- ────────────────────────────────────────────────────────────────────────────
+--  Each flagged element registers itself in Crispylib._flagElements[flag]
+--  as an object with :Get() and :Set(v). The Config module reads/writes these.
+--
+--  Storage priority:
+--    1. writefile / readfile  (executor environment)
+--    2. In-memory only (prints a warning; DataStore is server-only)
+
+local Crispylib = {}
+Crispylib.__index = Crispylib
+Crispylib.Theme        = Theme
+Crispylib._flags       = {}        -- flag -> current value (mirrors element state)
+Crispylib._flagElements = {}       -- flag -> { Get, Set }  element handle
+Crispylib._configName  = "Crispylib"
+
+-- Detect executor file API
+local _hasWritefile = (type(writefile) == "function")
+local _hasReadfile  = (type(readfile)  == "function")
+local _hasListfiles = (type(listfiles) == "function")
+local _hasIsfile    = (type(isfile)    == "function")
+local _hasMakefolder = (type(makefolder) == "function")
+
+-- ── Serialisation helpers ───────────────────────────────────────────────────
+local function SerialiseValue(v)
+    local t = typeof(v)
+    if t == "Color3" then
+        return { __type = "Color3", r = v.R, g = v.G, b = v.B }
+    elseif t == "table" then
+        local out = {}
+        for i, item in ipairs(v) do out[i] = SerialiseValue(item) end
+        return out
+    else
+        return v
+    end
+end
+
+local function DeserialiseValue(v)
+    if type(v) == "table" then
+        if v.__type == "Color3" then
+            return Color3.new(v.r, v.g, v.b)
+        else
+            local out = {}
+            for i, item in ipairs(v) do out[i] = DeserialiseValue(item) end
+            return out
+        end
+    end
+    return v
+end
+
+-- ── File paths ──────────────────────────────────────────────────────────────
+local function ConfigFolder()
+    return "Crispylib/" .. Crispylib._configName
+end
+
+local function ProfilePath(name)
+    return ConfigFolder() .. "/" .. tostring(name) .. ".json"
+end
+
+local function EnsureFolder()
+    if _hasMakefolder then
+        pcall(makefolder, "Crispylib")
+        pcall(makefolder, ConfigFolder())
+    end
+end
+
+-- ── Config public API ───────────────────────────────────────────────────────
+Crispylib.Config = {}
+
+--- Snapshot all flagged values into a flat table
+function Crispylib.Config.Snapshot()
+    local snap = {}
+    for flag, elem in pairs(Crispylib._flagElements) do
+        snap[flag] = SerialiseValue(elem.Get())
+    end
+    return snap
+end
+
+--- Apply a snapshot table to all matching flagged elements
+function Crispylib.Config.Apply(snap)
+    for flag, raw in pairs(snap) do
+        local elem = Crispylib._flagElements[flag]
+        if elem then
+            pcall(elem.Set, DeserialiseValue(raw))
+        end
+    end
+end
+
+--- Export current config as a JSON string
+function Crispylib.Config.Export()
+    local ok, json = pcall(function()
+        return HttpService:JSONEncode(Crispylib.Config.Snapshot())
+    end)
+    return ok and json or "{}"
+end
+
+--- Import and apply config from a JSON string
+function Crispylib.Config.Import(json)
+    local ok, snap = pcall(function()
+        return HttpService:JSONDecode(json)
+    end)
+    if ok and type(snap) == "table" then
+        Crispylib.Config.Apply(snap)
+        return true
+    end
+    return false
+end
+
+--- Save current config to a named profile file
+function Crispylib.Config.Save(name)
+    name = name or "default"
+    if not _hasWritefile then
+        warn("[Crispylib] writefile not available — config saved in-memory only")
+        Crispylib._inMemory = Crispylib._inMemory or {}
+        Crispylib._inMemory[name] = Crispylib.Config.Snapshot()
+        return true
+    end
+    EnsureFolder()
+    local ok = pcall(writefile, ProfilePath(name), Crispylib.Config.Export())
+    return ok
+end
+
+--- Load a named profile and apply it
+function Crispylib.Config.Load(name)
+    name = name or "default"
+    if not _hasReadfile then
+        -- Try in-memory fallback
+        if Crispylib._inMemory and Crispylib._inMemory[name] then
+            Crispylib.Config.Apply(Crispylib._inMemory[name])
+            return true
+        end
+        return false
+    end
+    local path = ProfilePath(name)
+    local exists = true
+    if _hasIsfile then exists = isfile(path) end
+    if not exists then return false end
+    local ok, json = pcall(readfile, path)
+    if not ok then return false end
+    return Crispylib.Config.Import(json)
+end
+
+--- List all saved profile names
+function Crispylib.Config.List()
+    if not _hasListfiles then
+        -- Return in-memory keys
+        local list = {}
+        if Crispylib._inMemory then
+            for k in pairs(Crispylib._inMemory) do list[#list+1] = k end
+        end
+        return list
+    end
+    EnsureFolder()
+    local ok, files = pcall(listfiles, ConfigFolder())
+    if not ok then return {} end
+    local names = {}
+    for _, path in ipairs(files) do
+        local name = path:match("([^/\\]+)%.json$")
+        if name then names[#names+1] = name end
+    end
+    return names
+end
+
+--- Delete a saved profile
+function Crispylib.Config.Delete(name)
+    if not name then return false end
+    if not _hasWritefile then
+        if Crispylib._inMemory then Crispylib._inMemory[name] = nil end
+        return true
+    end
+    local path = ProfilePath(name)
+    if _hasIsfile and not isfile(path) then return false end
+    local ok = pcall(writefile, path, "__deleted__")
+    -- Some executors have delfile; try it
+    if type(delfile) == "function" then
+        pcall(delfile, path)
+    else
+        -- overwrite with empty to at least clear it
+        pcall(writefile, path, "{}")
+    end
+    return ok
+end
+
+-- ── Internal flag registration ───────────────────────────────────────────────
+local function RegisterFlag(flag, getFunc, setFunc)
+    if not flag then return end
+    Crispylib._flagElements[flag] = { Get = getFunc, Set = setFunc }
+end
+
+-- ────────────────────────────────────────────────────────────────────────────
+--  NOTIFICATION SYSTEM
+-- ────────────────────────────────────────────────────────────────────────────
+local _notifGui = nil
+local _notifContainer = nil
+
+local function EnsureNotifGui()
+    if _notifGui and _notifGui.Parent then return end
+    _notifGui = Create("ScreenGui", {
+        Name           = "Crispylib_Notifs",
+        ResetOnSpawn   = false,
+        ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+        IgnoreGuiInset = true,
+        DisplayOrder   = 1000,
+    })
+    pcall(function() _notifGui.Parent = CoreGui end)
+    if not _notifGui.Parent then
+        _notifGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+    end
+    _notifContainer = Create("Frame", {
+        Name                   = "Container",
+        Size                   = UDim2.new(0, 300, 1, 0),
+        Position               = UDim2.new(1, -316, 0, 0),
+        BackgroundTransparency = 1,
+        Parent                 = _notifGui,
+    })
+    ListLayout(_notifContainer, Enum.FillDirection.Vertical, 8)
+    AddPadding(_notifContainer, 16, 16, 0, 0)
+end
+
+--- Show a notification toast.
+-- @param config  { Title, Description, Duration, Type }
+-- Type: "info" | "success" | "error" | "warn"
+function Crispylib.Notify(config)
+    config = config or {}
+    EnsureNotifGui()
+
+    local typeColor = ({
+        info    = Theme.NotifInfo,
+        success = Theme.NotifSuccess,
+        error   = Theme.NotifError,
+        warn    = Theme.NotifWarn,
+    })[config.Type or "info"] or Theme.NotifInfo
+
+    local duration = config.Duration or 4
+
+    local notif = Create("Frame", {
+        Name             = "Notif",
+        Size             = UDim2.new(1, 0, 0, 70),
+        BackgroundColor3 = Theme.NotifBg,
+        BackgroundTransparency = 0,
+        BorderSizePixel  = 0,
+        Parent           = _notifContainer,
+    })
+    Round(notif, 10)
+    Stroke(notif, Theme.NotifBorder, 1)
+
+    -- Coloured left accent
+    local accent = Create("Frame", {
+        Name             = "Accent",
+        Size             = UDim2.new(0, 4, 1, -16),
+        Position         = UDim2.new(0, 8, 0.5, 0),
+        AnchorPoint      = Vector2.new(0, 0.5),
+        BackgroundColor3 = typeColor,
+        BorderSizePixel  = 0,
+        Parent           = notif,
+    })
+    Round(accent, 2)
+
+    Create("TextLabel", {
+        Name             = "Title",
+        Size             = UDim2.new(1, -28, 0, 20),
+        Position         = UDim2.new(0, 22, 0, 12),
+        BackgroundTransparency = 1,
+        Text             = config.Title or "Notification",
+        TextColor3       = Theme.TitleText,
+        TextSize         = 13,
+        Font             = Enum.Font.GothamBold,
+        TextXAlignment   = Enum.TextXAlignment.Left,
+        Parent           = notif,
+    })
+    Create("TextLabel", {
+        Name             = "Desc",
+        Size             = UDim2.new(1, -28, 0, 28),
+        Position         = UDim2.new(0, 22, 0, 32),
+        BackgroundTransparency = 1,
+        Text             = config.Description or "",
+        TextColor3       = Theme.DescText,
+        TextSize         = 11,
+        Font             = Enum.Font.Gotham,
+        TextXAlignment   = Enum.TextXAlignment.Left,
+        TextWrapped      = true,
+        Parent           = notif,
+    })
+
+    -- Progress bar
+    local progressBg = Create("Frame", {
+        Name             = "ProgressBg",
+        Size             = UDim2.new(1, -16, 0, 3),
+        Position         = UDim2.new(0, 8, 1, -6),
+        BackgroundColor3 = Theme.LoaderBarBg,
+        BorderSizePixel  = 0,
+        Parent           = notif,
+    })
+    Round(progressBg, 2)
+    local progressFill = Create("Frame", {
+        Name             = "Fill",
+        Size             = UDim2.new(1, 0, 1, 0),
+        BackgroundColor3 = typeColor,
+        BorderSizePixel  = 0,
+        Parent           = progressBg,
+    })
+    Round(progressFill, 2)
+
+    -- Slide in
+    notif.Position = UDim2.new(1, 20, 0, 0)
+    Tween(notif, { Position = UDim2.new(0, 0, 0, 0) }, TWEEN_EASE)
+
+    -- Drain progress bar
+    Tween(progressFill, { Size = UDim2.new(0, 0, 1, 0) },
+        TweenInfo.new(duration, Enum.EasingStyle.Linear, Enum.EasingDirection.Out))
+
+    -- Dismiss after duration
+    task.delay(duration, function()
+        Tween(notif, { Position = UDim2.new(1, 20, 0, 0) }, TWEEN_EASE)
+        task.delay(0.4, function()
+            notif:Destroy()
+        end)
+    end)
+end
+
+-- ────────────────────────────────────────────────────────────────────────────
+--  LOADING SCREEN
+-- ────────────────────────────────────────────────────────────────────────────
+--- Creates a full-screen loading overlay.
+-- config: { Title, Subtitle, LogoId, MinimumTime }
+-- Returns: { SetProgress(0-1), SetStatus(text), AddTask(text), Finish() }
+function Crispylib.CreateLoadingScreen(config)
+    config = config or {}
+    local title    = config.Title    or "Loading"
+    local subtitle = config.Subtitle or ""
+    local logoId   = config.LogoId   or ""
+    local minTime  = config.MinimumTime or 0
+
+    local startTime = os.clock()
+
+    local sg = Create("ScreenGui", {
+        Name           = "Crispylib_Loader",
+        ResetOnSpawn   = false,
+        ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+        IgnoreGuiInset = true,
+        DisplayOrder   = 2000,
+    })
+    pcall(function() sg.Parent = CoreGui end)
+    if not sg.Parent then sg.Parent = LocalPlayer:WaitForChild("PlayerGui") end
+
+    -- Full dark background
+    local bg = Create("Frame", {
+        Name             = "Bg",
+        Size             = UDim2.new(1, 0, 1, 0),
+        BackgroundColor3 = Theme.LoaderBg,
+        BorderSizePixel  = 0,
+        Parent           = sg,
+    })
+
+    -- Subtle animated gradient
+    local grad = Create("UIGradient", {
+        Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(22, 22, 26)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(14, 14, 18)),
+        }),
+        Rotation = 135,
+        Parent   = bg,
+    })
+
+    -- Center container
+    local center = Create("Frame", {
+        Name             = "Center",
+        Size             = UDim2.new(0, 340, 0, 260),
+        Position         = UDim2.new(0.5, -170, 0.5, -130),
+        BackgroundTransparency = 1,
+        Parent           = bg,
+    })
+
+    -- Logo image (if provided)
+    local logoY = 0
+    if logoId ~= "" then
+        Create("ImageLabel", {
+            Name             = "Logo",
+            Size             = UDim2.new(0, 64, 0, 64),
+            Position         = UDim2.new(0.5, -32, 0, 0),
+            BackgroundTransparency = 1,
+            Image            = logoId,
+            Parent           = center,
+        })
+        logoY = 76
+    end
+
+    -- Title
+    Create("TextLabel", {
+        Name             = "Title",
+        Size             = UDim2.new(1, 0, 0, 32),
+        Position         = UDim2.new(0, 0, 0, logoY),
+        BackgroundTransparency = 1,
+        Text             = title,
+        TextColor3       = Theme.TitleText,
+        TextSize         = 24,
+        Font             = Enum.Font.GothamBold,
+        TextXAlignment   = Enum.TextXAlignment.Center,
+        Parent           = center,
+    })
+
+    -- Subtitle
+    local subtitleLabel = Create("TextLabel", {
+        Name             = "Subtitle",
+        Size             = UDim2.new(1, 0, 0, 20),
+        Position         = UDim2.new(0, 0, 0, logoY + 36),
+        BackgroundTransparency = 1,
+        Text             = subtitle,
+        TextColor3       = Theme.SubtitleText,
+        TextSize         = 13,
+        Font             = Enum.Font.Gotham,
+        TextXAlignment   = Enum.TextXAlignment.Center,
+        Parent           = center,
+    })
+
+    -- Progress bar background
+    local barBg = Create("Frame", {
+        Name             = "BarBg",
+        Size             = UDim2.new(1, 0, 0, 5),
+        Position         = UDim2.new(0, 0, 0, logoY + 84),
+        BackgroundColor3 = Theme.LoaderBarBg,
+        BorderSizePixel  = 0,
+        Parent           = center,
+    })
+    Round(barBg, 3)
+
+    local barFill = Create("Frame", {
+        Name             = "Fill",
+        Size             = UDim2.new(0, 0, 1, 0),
+        BackgroundColor3 = Theme.LoaderBarFill,
+        BorderSizePixel  = 0,
+        Parent           = barBg,
+    })
+    Round(barFill, 3)
+
+    -- Status text
+    local statusLabel = Create("TextLabel", {
+        Name             = "Status",
+        Size             = UDim2.new(1, 0, 0, 16),
+        Position         = UDim2.new(0, 0, 0, logoY + 97),
+        BackgroundTransparency = 1,
+        Text             = "",
+        TextColor3       = Theme.DescText,
+        TextSize         = 11,
+        Font             = Enum.Font.Gotham,
+        TextXAlignment   = Enum.TextXAlignment.Center,
+        Parent           = center,
+    })
+
+    -- Task list (scrollable, shows recent tasks)
+    local taskList = Create("Frame", {
+        Name             = "Tasks",
+        Size             = UDim2.new(1, 0, 0, 100),
+        Position         = UDim2.new(0, 0, 0, logoY + 120),
+        BackgroundTransparency = 1,
+        ClipsDescendants = true,
+        Parent           = center,
+    })
+    ListLayout(taskList, Enum.FillDirection.Vertical, 4)
+
+    local progress = 0
+
+    local Loader = {}
+
+    function Loader:SetProgress(pct)
+        progress = math.clamp(pct, 0, 1)
+        Tween(barFill, { Size = UDim2.new(progress, 0, 1, 0) },
+            TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out))
+    end
+
+    function Loader:SetStatus(text)
+        statusLabel.Text = tostring(text or "")
+    end
+
+    function Loader:AddTask(text)
+        local lbl = Create("TextLabel", {
+            Name             = "Task",
+            Size             = UDim2.new(1, 0, 0, 16),
+            BackgroundTransparency = 1,
+            Text             = "✓  " .. tostring(text),
+            TextColor3       = Theme.DescText,
+            TextSize         = 11,
+            Font             = Enum.Font.Gotham,
+            TextXAlignment   = Enum.TextXAlignment.Center,
+            Parent           = taskList,
+        })
+        -- Fade older tasks
+        local children = taskList:GetChildren()
+        for i, c in ipairs(children) do
+            if c:IsA("TextLabel") then
+                local alpha = math.clamp((i / #children), 0.2, 1)
+                c.TextTransparency = 1 - alpha * 0.7
+            end
+        end
+    end
+
+    function Loader:Finish(callback)
+        local elapsed = os.clock() - startTime
+        local remaining = math.max(0, minTime - elapsed)
+        task.delay(remaining, function()
+            -- Fill to 100%
+            self:SetProgress(1)
+            task.wait(0.3)
+            -- Fade out
+            Tween(bg, { BackgroundTransparency = 1 }, TWEEN_SLOW)
+            for _, desc in ipairs(bg:GetDescendants()) do
+                if desc:IsA("TextLabel") or desc:IsA("ImageLabel") or desc:IsA("Frame") then
+                    pcall(function()
+                        Tween(desc, { BackgroundTransparency = 1, TextTransparency = 1 }, TWEEN_SLOW)
+                    end)
+                end
+            end
+            task.delay(0.35, function()
+                sg:Destroy()
+                if callback then pcall(callback) end
+            end)
+        end)
+    end
+
+    -- Gentle pulse on bar fill (shimmer)
+    task.spawn(function()
+        while sg and sg.Parent do
+            Tween(barFill, { BackgroundColor3 = Color3.fromRGB(40, 160, 255) },
+                TweenInfo.new(0.8, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut))
+            task.wait(0.9)
+            Tween(barFill, { BackgroundColor3 = Theme.LoaderBarFill },
+                TweenInfo.new(0.8, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut))
+            task.wait(0.9)
+        end
+    end)
+
+    return Loader
+end
+
+-- ────────────────────────────────────────────────────────────────────────────
+--  CREATE WINDOW
+-- ────────────────────────────────────────────────────────────────────────────
+function Crispylib.CreateWindow(config)
+    config = config or {}
+    local title      = config.Title      or "Xenon Hub"
+    local subtitle   = config.Subtitle   or ""
+    local configName = config.ConfigName  -- enables config system if set
+    local autoLoad   = config.AutoLoad   or false
+
+    -- Set config name so the Config module uses the right folder
+    if configName then
+        Crispylib._configName = configName
+    end
+
+    -- Root ScreenGui
+    local screenGui = Create("ScreenGui", {
+        Name           = "Crispylib_" .. title:gsub("%s+", ""),
+        ResetOnSpawn   = false,
+        ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+        IgnoreGuiInset = true,
+        DisplayOrder   = 999,
+    })
+    pcall(function() screenGui.Parent = CoreGui end)
+    if not screenGui.Parent then
+        screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+    end
+
+    -- Window frame
+    local window = Create("Frame", {
+        Name             = "Window",
+        Size             = UDim2.new(0, WIN_W, 0, WIN_H),
+        Position         = UDim2.new(0.5, -WIN_W/2, 0.5, -WIN_H/2),
+        BackgroundColor3 = Theme.WindowBg,
+        BorderSizePixel  = 0,
+        Parent           = screenGui,
+    })
+    Round(window, 12)
+    Stroke(window, Color3.fromRGB(55, 55, 60), 1)
+
+    -- Shadow
+    Create("Frame", {
+        Name                   = "Shadow",
+        Size                   = UDim2.new(1, 20, 1, 20),
+        Position               = UDim2.new(0, -10, 0, 8),
+        BackgroundColor3       = Color3.fromRGB(0, 0, 0),
+        BackgroundTransparency = 0.65,
+        ZIndex                 = window.ZIndex - 1,
+        BorderSizePixel        = 0,
+        Parent                 = window,
+    })
+    Round(window:FindFirstChild("Shadow"), 16)
+
+    -- ── TITLE BAR ──────────────────────────────────────────────────────────
+    local titleBar = Create("Frame", {
+        Name             = "TitleBar",
+        Size             = UDim2.new(1, 0, 0, TITLEBAR_H),
+        BackgroundColor3 = Theme.TitleBarBg,
+        BorderSizePixel  = 0,
+        ZIndex           = 2,
+        Parent           = window,
+    })
+    Round(titleBar, 12)
+
+    -- Traffic lights
+    local function TrafficBtn(color, parent)
+        local btn = Create("Frame", {
+            Size = UDim2.new(0, 14, 0, 14), BackgroundColor3 = color,
+            BorderSizePixel = 0, Parent = parent,
+        })
+        Round(btn, 7)
+        return btn
+    end
+    local btnContainer = Create("Frame", {
+        Size = UDim2.new(0, 64, 0, 16), Position = UDim2.new(0, 12, 0.5, -8),
+        BackgroundTransparency = 1, Parent = titleBar,
+    })
+    ListLayout(btnContainer, Enum.FillDirection.Horizontal, 8)
+    local closeBtn = TrafficBtn(Theme.CloseBtn, btnContainer)
+    local minBtn   = TrafficBtn(Theme.MinBtn,   btnContainer)
+    TrafficBtn(Theme.MaxBtn, btnContainer)
+
+    -- Sidebar toggle
+    local toggleSidebarBtn = Create("TextButton", {
+        Size = UDim2.new(0, 24, 0, 24), Position = UDim2.new(0, 84, 0.5, -12),
+        BackgroundTransparency = 1, Text = "⊞", TextColor3 = Theme.SubtitleText,
+        TextSize = 18, Font = Enum.Font.GothamBold, BorderSizePixel = 0,
+        Parent = titleBar,
+    })
+
+    -- Nav arrows
+    Create("TextButton", {
+        Size = UDim2.new(0, 22, 0, 24), Position = UDim2.new(0, 116, 0.5, -12),
+        BackgroundTransparency = 1, Text = "‹", TextColor3 = Theme.SubtitleText,
+        TextSize = 22, Font = Enum.Font.GothamBold, BorderSizePixel = 0,
+        Parent = titleBar,
+    })
+    Create("TextButton", {
+        Size = UDim2.new(0, 22, 0, 24), Position = UDim2.new(0, 138, 0.5, -12),
+        BackgroundTransparency = 1, Text = "›", TextColor3 = Theme.SubtitleText,
+        TextSize = 22, Font = Enum.Font.GothamBold, BorderSizePixel = 0,
+        Parent = titleBar,
+    })
+
+    -- Title + subtitle (center)
+    local titleFrame = Create("Frame", {
+        Size = UDim2.new(0, 200, 1, 0), Position = UDim2.new(0.5, -100, 0, 0),
+        BackgroundTransparency = 1, Parent = titleBar,
+    })
+    Create("TextLabel", {
+        Size = UDim2.new(1, 0, 0, 20), Position = UDim2.new(0, 0, 0.5, -21),
+        BackgroundTransparency = 1, Text = title, TextColor3 = Theme.TitleText,
+        TextSize = 14, Font = Enum.Font.GothamBold,
+        TextXAlignment = Enum.TextXAlignment.Center, Parent = titleFrame,
+    })
+    Create("TextLabel", {
+        Size = UDim2.new(1, 0, 0, 14), Position = UDim2.new(0, 0, 0.5, 3),
+        BackgroundTransparency = 1, Text = subtitle, TextColor3 = Theme.SubtitleText,
+        TextSize = 11, Font = Enum.Font.Gotham,
+        TextXAlignment = Enum.TextXAlignment.Center, Parent = titleFrame,
+    })
+
+    -- Search bar
+    local searchBg = Create("Frame", {
+        Size = UDim2.new(0, 150, 0, 28), Position = UDim2.new(1, -162, 0.5, -14),
+        BackgroundColor3 = Theme.InputBg, BorderSizePixel = 0, Parent = titleBar,
+    })
+    Round(searchBg, 7)
+    Stroke(searchBg, Theme.InputBorder, 1)
+    Create("TextLabel", {
+        Size = UDim2.new(0, 20, 1, 0), Position = UDim2.new(0, 6, 0, 0),
+        BackgroundTransparency = 1, Text = "⌕", TextColor3 = Theme.SearchPlaceholder,
+        TextSize = 16, Font = Enum.Font.Gotham, Parent = searchBg,
+    })
+    Create("TextBox", {
+        Size = UDim2.new(1, -28, 1, 0), Position = UDim2.new(0, 26, 0, 0),
+        BackgroundTransparency = 1, PlaceholderText = "Search",
+        PlaceholderColor3 = Theme.SearchPlaceholder, Text = "",
+        TextColor3 = Theme.LabelText, TextSize = 12, Font = Enum.Font.Gotham,
+        TextXAlignment = Enum.TextXAlignment.Left, ClearTextOnFocus = false,
+        Parent = searchBg,
+    })
+
+    -- Title bar bottom border
+    Create("Frame", {
+        Size = UDim2.new(1, 0, 0, 1), Position = UDim2.new(0, 0, 1, -1),
+        BackgroundColor3 = Theme.Separator, BorderSizePixel = 0,
+        Parent = titleBar,
+    })
+
+    -- ── SIDEBAR ────────────────────────────────────────────────────────────
+    local sidebar = Create("Frame", {
+        Name             = "Sidebar",
+        Size             = UDim2.new(0, SIDEBAR_W, 1, -TITLEBAR_H),
+        Position         = UDim2.new(0, 0, 0, TITLEBAR_H),
+        BackgroundColor3 = Theme.SidebarBg,
+        BorderSizePixel  = 0,
+        Parent           = window,
+    })
+    Create("Frame", {
+        Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, -1, 0, 0),
+        BackgroundColor3 = Theme.Separator, BorderSizePixel = 0, Parent = sidebar,
+    })
+
+    local sidebarScroll = MakeScrollFrame(sidebar)
+    AddPadding(sidebarScroll, 10, 10, 0, 0)
+    local sidebarList = Create("Frame", {
+        Name = "List", Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
+        BackgroundTransparency = 1, Parent = sidebarScroll,
+    })
+    ListLayout(sidebarList, Enum.FillDirection.Vertical, 2)
+
+    -- ── CONTENT ────────────────────────────────────────────────────────────
+    local content = Create("Frame", {
+        Name             = "Content",
+        Size             = UDim2.new(1, -SIDEBAR_W, 1, -TITLEBAR_H),
+        Position         = UDim2.new(0, SIDEBAR_W, 0, TITLEBAR_H),
+        BackgroundColor3 = Theme.ContentBg,
+        BorderSizePixel  = 0,
+        Parent           = window,
+    })
+
+    MakeDraggable(titleBar, window)
+
+    -- ── CLOSE / MINIMISE ───────────────────────────────────────────────────
+    local minimised = false
+    closeBtn.InputBegan:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 then
+            Tween(window, { Size = UDim2.new(0, 0, 0, 0), Position = UDim2.new(0.5, 0, 0.5, 0) }, TWEEN_SLOW)
+            task.wait(0.3); screenGui:Destroy()
+        end
+    end)
+    minBtn.InputBegan:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 then
+            minimised = not minimised
+            Tween(window, { Size = UDim2.new(0, WIN_W, 0, minimised and TITLEBAR_H or WIN_H) }, TWEEN_SLOW)
+        end
+    end)
+
+    -- Sidebar toggle
+    local sidebarVisible = true
+    toggleSidebarBtn.MouseButton1Click:Connect(function()
+        sidebarVisible = not sidebarVisible
+        if sidebarVisible then
+            Tween(sidebar, { Size = UDim2.new(0, SIDEBAR_W, 1, -TITLEBAR_H) }, TWEEN_SLOW)
+            Tween(content, {
+                Size     = UDim2.new(1, -SIDEBAR_W, 1, -TITLEBAR_H),
+                Position = UDim2.new(0, SIDEBAR_W, 0, TITLEBAR_H),
+            }, TWEEN_SLOW)
+        else
+            Tween(sidebar, { Size = UDim2.new(0, 0, 1, -TITLEBAR_H) }, TWEEN_SLOW)
+            Tween(content, {
+                Size     = UDim2.new(1, 0, 1, -TITLEBAR_H),
+                Position = UDim2.new(0, 0, 0, TITLEBAR_H),
+            }, TWEEN_SLOW)
+        end
+    end)
+
+    -- ── WINDOW OBJECT ──────────────────────────────────────────────────────
+    local Window         = {}
+    Window._tabs         = {}
+    Window._activeTab    = nil
+    Window._sidebarList  = sidebarList
+    Window._content      = content
+    Window._tabOrder     = 0
+
+    -- ── SIDEBAR SECTION HEADER ─────────────────────────────────────────────
+    function Window:AddSidebarSection(name)
+        local label = Create("TextLabel", {
+            Name = "Sec_"..name, Size = UDim2.new(1, 0, 0, 28),
+            BackgroundTransparency = 1, Text = name, TextColor3 = Theme.SectionLabel,
+            TextSize = 11, Font = Enum.Font.GothamBold,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            LayoutOrder = self._tabOrder, Parent = self._sidebarList,
+        })
+        AddPadding(label, 0, 0, 14, 0)
+        self._tabOrder = self._tabOrder + 1
+    end
+
+    -- ── ADD TAB ────────────────────────────────────────────────────────────
+    function Window:AddTab(tabConfig)
+        tabConfig   = tabConfig or {}
+        local tabName = tabConfig.Name or "Tab"
+        local tabIcon = tabConfig.Icon or ""
+        self._tabOrder = self._tabOrder + 1
+
+        -- Sidebar button
+        local tabBtn = Create("TextButton", {
+            Name = "Tab_"..tabName, Size = UDim2.new(1, -16, 0, 34),
+            BackgroundColor3 = Theme.SidebarBg, BackgroundTransparency = 1, Text = "",
+            BorderSizePixel = 0, LayoutOrder = self._tabOrder,
+            Parent = self._sidebarList, AutoButtonColor = false,
+        })
+        Round(tabBtn, 7)
+        local iconLabel = Create("TextLabel", {
+            Name = "Icon", Size = UDim2.new(0, 22, 1, 0), Position = UDim2.new(0, 10, 0, 0),
+            BackgroundTransparency = 1, Text = tabIcon, TextColor3 = Theme.TabInactiveText,
+            TextSize = 15, Font = Enum.Font.Gotham,
+            TextXAlignment = Enum.TextXAlignment.Left, Parent = tabBtn,
+        })
+        local nameLabel = Create("TextLabel", {
+            Name = "Label", Size = UDim2.new(1, -36, 1, 0), Position = UDim2.new(0, 34, 0, 0),
+            BackgroundTransparency = 1, Text = tabName, TextColor3 = Theme.TabInactiveText,
+            TextSize = 13, Font = Enum.Font.Gotham,
+            TextXAlignment = Enum.TextXAlignment.Left, Parent = tabBtn,
+        })
+
+        -- Tab content scroll
+        local tabScroll = MakeScrollFrame(self._content)
+        tabScroll.Visible = false
+        AddPadding(tabScroll, 0, 12, 0, 0)
+        local tabContent = Create("Frame", {
+            Name = "Content_"..tabName, Size = UDim2.new(1, 0, 0, 0),
+            AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1,
+            Parent = tabScroll,
+        })
+        ListLayout(tabContent, Enum.FillDirection.Vertical, 0)
+
+        local Tab     = {}
+        Tab._content  = tabContent
+        Tab._scroll   = tabScroll
+        Tab._btn      = tabBtn
+        Tab._window   = self
+        Tab._order    = 0
+
+        local function Activate()
+            if self._activeTab and self._activeTab ~= Tab then
+                local prev = self._activeTab
+                Tween(prev._btn, { BackgroundTransparency = 1 }, TWEEN_INFO)
+                prev._btn:FindFirstChild("Icon").TextColor3  = Theme.TabInactiveText
+                prev._btn:FindFirstChild("Label").TextColor3 = Theme.TabInactiveText
+                prev._scroll.Visible = false
+            end
+            self._activeTab = Tab
+            Tween(tabBtn, { BackgroundColor3 = Theme.TabActive, BackgroundTransparency = 0 }, TWEEN_INFO)
+            iconLabel.TextColor3 = Theme.TabActiveText
+            nameLabel.TextColor3 = Theme.TabActiveText
+            tabScroll.Visible    = true
+        end
+
+        tabBtn.MouseButton1Click:Connect(Activate)
+        tabBtn.MouseEnter:Connect(function()
+            if self._activeTab ~= Tab then
+                Tween(tabBtn, { BackgroundColor3 = Theme.TabHover, BackgroundTransparency = 0 }, TWEEN_INFO)
+            end
+        end)
+        tabBtn.MouseLeave:Connect(function()
+            if self._activeTab ~= Tab then
+                Tween(tabBtn, { BackgroundTransparency = 1 }, TWEEN_INFO)
+            end
+        end)
+
+        if #self._tabs == 0 then task.defer(Activate) end
+        table.insert(self._tabs, Tab)
+
+        -- ── SECTION HEADER ────────────────────────────────────────────────
+        function Tab:AddSection(sc)
+            sc = sc or {}
+            self._order = self._order + 1
+            local h = sc.Description ~= "" and 50 or 34
+            local frame = Create("Frame", {
+                Name = "Section", Size = UDim2.new(1, 0, 0, h),
+                BackgroundTransparency = 1, LayoutOrder = self._order, Parent = self._content,
+            })
+            Create("TextLabel", {
+                Size = UDim2.new(1, -24, 0, 20), Position = UDim2.new(0, 16, 0, 10),
+                BackgroundTransparency = 1, Text = sc.Title or "",
+                TextColor3 = Theme.TitleText, TextSize = 14, Font = Enum.Font.GothamBold,
+                TextXAlignment = Enum.TextXAlignment.Left, Parent = frame,
+            })
+            if sc.Description and sc.Description ~= "" then
+                Create("TextLabel", {
+                    Size = UDim2.new(1, -24, 0, 16), Position = UDim2.new(0, 16, 0, 30),
+                    BackgroundTransparency = 1, Text = sc.Description,
+                    TextColor3 = Theme.DescText, TextSize = 11, Font = Enum.Font.Gotham,
+                    TextXAlignment = Enum.TextXAlignment.Left, Parent = frame,
+                })
+            end
+            Create("Frame", {
+                Size = UDim2.new(1, -16, 0, 1), Position = UDim2.new(0, 8, 1, -1),
+                BackgroundColor3 = Theme.Separator, BorderSizePixel = 0, Parent = frame,
+            })
+        end
+
+        -- ── ROW HELPERS ───────────────────────────────────────────────────
+        local function MakeRow(tab, rowH)
+            tab._order = tab._order + 1
+            local row = Create("Frame", {
+                Name = "Row_"..tab._order, Size = UDim2.new(1, 0, 0, rowH or 58),
+                BackgroundTransparency = 1, LayoutOrder = tab._order, Parent = tab._content,
+            })
+            Create("Frame", {
+                Name = "Sep", Size = UDim2.new(1, -16, 0, 1), Position = UDim2.new(0, 8, 1, -1),
+                BackgroundColor3 = Theme.Separator, BorderSizePixel = 0, Parent = row,
+            })
+            return row
+        end
+
+        local function AddRowLabels(row, name, desc)
+            Create("TextLabel", {
+                Name = "Name", Size = UDim2.new(0.55, -16, 0, 18), Position = UDim2.new(0, 16, 0, 12),
+                BackgroundTransparency = 1, Text = name or "", TextColor3 = Theme.LabelText,
+                TextSize = 13, Font = Enum.Font.GothamSemibold,
+                TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd,
+                Parent = row,
+            })
+            if desc and desc ~= "" then
+                Create("TextLabel", {
+                    Name = "Desc", Size = UDim2.new(0.7, -16, 0, 14), Position = UDim2.new(0, 16, 0, 31),
+                    BackgroundTransparency = 1, Text = desc, TextColor3 = Theme.DescText,
+                    TextSize = 11, Font = Enum.Font.Gotham,
+                    TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd,
+                    Parent = row,
+                })
+            end
+        end
+
+        -- ── LABEL ─────────────────────────────────────────────────────────
+        function Tab:AddLabel(lc)
+            lc = lc or {}
+            local row = MakeRow(self)
+            AddRowLabels(row, lc.Name, lc.Description)
+            local valLabel = Create("TextLabel", {
+                Name = "Value", Size = UDim2.new(0.4, -16, 1, 0), Position = UDim2.new(0.6, 0, 0, 0),
+                BackgroundTransparency = 1, Text = tostring(lc.Value or ""),
+                TextColor3 = Theme.ValueText, TextSize = 13, Font = Enum.Font.Gotham,
+                TextXAlignment = Enum.TextXAlignment.Right, TextTruncate = Enum.TextTruncate.AtEnd,
+                Parent = row,
+            })
+            AddPadding(valLabel, 0, 0, 0, 16)
+            local obj = {}
+            function obj:Set(v) valLabel.Text = tostring(v) end
+            return obj
+        end
+
+        -- ── TOGGLE ────────────────────────────────────────────────────────
+        function Tab:AddToggle(tc)
+            tc = tc or {}
+            local value    = tc.Default  or false
+            local callback = tc.Callback or function() end
+
+            local row = MakeRow(self)
+            AddRowLabels(row, tc.Name, tc.Description)
+
+            local track = Create("Frame", {
+                Size = UDim2.new(0, 44, 0, 26), Position = UDim2.new(1, -60, 0.5, -13),
+                BackgroundColor3 = value and Theme.ToggleOn or Theme.ToggleOff,
+                BorderSizePixel = 0, Parent = row,
+            })
+            Round(track, 13)
+            local knob = Create("Frame", {
+                Size = UDim2.new(0, 20, 0, 20),
+                Position = value and UDim2.new(0, 21, 0.5, -10) or UDim2.new(0, 3, 0.5, -10),
+                BackgroundColor3 = Theme.ToggleKnob, BorderSizePixel = 0, Parent = track,
+            })
+            Round(knob, 10)
+            local btn = Create("TextButton", {
+                Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, Text = "", Parent = track,
+            })
+
+            local obj = {}
+            local function ApplyToggle(v, silent)
+                value = v
+                if value then
+                    Tween(track, { BackgroundColor3 = Theme.ToggleOn  }, TWEEN_INFO)
+                    Tween(knob,  { Position = UDim2.new(0, 21, 0.5, -10) }, TWEEN_INFO)
+                else
+                    Tween(track, { BackgroundColor3 = Theme.ToggleOff }, TWEEN_INFO)
+                    Tween(knob,  { Position = UDim2.new(0,  3, 0.5, -10) }, TWEEN_INFO)
+                end
+                if not silent then pcall(callback, value) end
+                Crispylib._flags[tc.Flag] = value
+            end
+
+            btn.MouseButton1Click:Connect(function() ApplyToggle(not value) end)
+            function obj:Set(v, silent) ApplyToggle(v, silent) end
+            function obj:Get() return value end
+
+            RegisterFlag(tc.Flag, function() return value end, function(v) ApplyToggle(v, true) end)
+            return obj
+        end
+
+        -- ── DROPDOWN ──────────────────────────────────────────────────────
+        function Tab:AddDropdown(dc)
+            dc = dc or {}
+            local options  = dc.Options  or {}
+            local multi    = dc.Multi    or false
+            local callback = dc.Callback or function() end
+            local selected = dc.Default or (multi and {} or (options[1] or ""))
+
+            local row = MakeRow(self)
+            AddRowLabels(row, dc.Name, dc.Description)
+
+            local function ValueText()
+                if multi then
+                    return (#selected > 0) and table.concat(selected, ", ") or "None"
+                end
+                return tostring(selected ~= "" and selected or "None")
+            end
+
+            local dropBtn = Create("TextButton", {
+                Name = "DropBtn", Size = UDim2.new(0, 160, 0, 28),
+                Position = UDim2.new(1, -176, 0.5, -14),
+                BackgroundColor3 = Theme.DropdownBg, Text = "",
+                BorderSizePixel = 0, AutoButtonColor = false, Parent = row,
+            })
+            Round(dropBtn, 7)
+            Stroke(dropBtn, Theme.DropdownBorder, 1)
+            local dropLabel = Create("TextLabel", {
+                Size = UDim2.new(1, -28, 1, 0), Position = UDim2.new(0, 8, 0, 0),
+                BackgroundTransparency = 1, Text = ValueText(), TextColor3 = Theme.ValueText,
+                TextSize = 12, Font = Enum.Font.Gotham,
+                TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd,
+                Parent = dropBtn,
+            })
+            Create("TextLabel", {
+                Size = UDim2.new(0, 20, 1, 0), Position = UDim2.new(1, -22, 0, 0),
+                BackgroundTransparency = 1, Text = "⌃", TextColor3 = Theme.SubtitleText,
+                TextSize = 12, Font = Enum.Font.GothamBold, Rotation = 180, Parent = dropBtn,
+            })
+
+            local listOpen = false
+            local listFrame = Create("Frame", {
+                Size = UDim2.new(0, 180, 0, 0), Position = UDim2.new(1, -196, 1, 4),
+                BackgroundColor3 = Theme.DropdownBg, BorderSizePixel = 0,
+                ZIndex = 20, ClipsDescendants = true, Visible = false, Parent = row,
+            })
+            Round(listFrame, 8)
+            Stroke(listFrame, Theme.DropdownBorder, 1)
+
+            local searchFrame = Create("Frame", {
+                Size = UDim2.new(1, -16, 0, 28), Position = UDim2.new(0, 8, 0, 6),
+                BackgroundColor3 = Theme.InputBg, BorderSizePixel = 0, ZIndex = 21, Parent = listFrame,
+            })
+            Round(searchFrame, 6)
+            Stroke(searchFrame, Theme.DropdownBorder, 1)
+            local searchInput = Create("TextBox", {
+                Size = UDim2.new(1, -10, 1, 0), Position = UDim2.new(0, 8, 0, 0),
+                BackgroundTransparency = 1, PlaceholderText = "Search...",
+                PlaceholderColor3 = Theme.SearchPlaceholder, Text = "",
+                TextColor3 = Theme.LabelText, TextSize = 12, Font = Enum.Font.Gotham,
+                TextXAlignment = Enum.TextXAlignment.Left, ClearTextOnFocus = false,
+                ZIndex = 22, Parent = searchFrame,
+            })
+
+            local optionScroll = Create("ScrollingFrame", {
+                Size = UDim2.new(1, -8, 1, -46), Position = UDim2.new(0, 4, 0, 40),
+                BackgroundTransparency = 1, ScrollBarThickness = 3,
+                ScrollBarImageColor3 = Theme.ScrollbarThumb, BorderSizePixel = 0,
+                CanvasSize = UDim2.new(0, 0, 0, 0), AutomaticCanvasSize = Enum.AutomaticSize.Y,
+                ZIndex = 21, Parent = listFrame,
+            })
+            local optionList = Create("Frame", {
+                Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
+                BackgroundTransparency = 1, ZIndex = 21, Parent = optionScroll,
+            })
+            ListLayout(optionList, Enum.FillDirection.Vertical, 2)
+            AddPadding(optionList, 2, 2, 0, 0)
+
+            local function IsSelected(opt)
+                if multi then
+                    for _, v in ipairs(selected) do if v == opt then return true end end
+                    return false
+                end
+                return selected == opt
+            end
+
+            local optionBtns = {}
+            local function RebuildOptions(filter)
+                for _, c in ipairs(optionBtns) do c:Destroy() end
+                optionBtns = {}
+                filter = (filter or ""):lower()
+                for _, opt in ipairs(options) do
+                    if filter == "" or opt:lower():find(filter, 1, true) then
+                        local sel = IsSelected(opt)
+                        local ob = Create("TextButton", {
+                            Size = UDim2.new(1, 0, 0, 28),
+                            BackgroundColor3 = sel and Theme.TabActive or Theme.DropdownBg,
+                            BackgroundTransparency = sel and 0 or 1, Text = "",
+                            BorderSizePixel = 0, AutoButtonColor = false, ZIndex = 22,
+                            Parent = optionList,
+                        })
+                        Round(ob, 5)
+                        Create("TextLabel", {
+                            Size = UDim2.new(1, -12, 1, 0), Position = UDim2.new(0, 8, 0, 0),
+                            BackgroundTransparency = 1, Text = opt,
+                            TextColor3 = sel and Theme.TabActiveText or Theme.LabelText,
+                            TextSize = 12, Font = Enum.Font.Gotham,
+                            TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd,
+                            ZIndex = 23, Parent = ob,
+                        })
+                        ob.MouseEnter:Connect(function()
+                            if not IsSelected(opt) then
+                                Tween(ob, { BackgroundColor3 = Theme.DropdownItemHover, BackgroundTransparency = 0 }, TWEEN_INFO)
+                            end
+                        end)
+                        ob.MouseLeave:Connect(function()
+                            if not IsSelected(opt) then Tween(ob, { BackgroundTransparency = 1 }, TWEEN_INFO) end
+                        end)
+                        ob.MouseButton1Click:Connect(function()
+                            if multi then
+                                local found = false
+                                for i, v in ipairs(selected) do
+                                    if v == opt then table.remove(selected, i); found = true; break end
+                                end
+                                if not found then table.insert(selected, opt) end
+                            else
+                                selected = opt
+                                listOpen = false
+                                Tween(listFrame, { Size = UDim2.new(0, 180, 0, 0) }, TWEEN_INFO)
+                                task.delay(0.2, function() listFrame.Visible = false end)
+                            end
+                            dropLabel.Text = ValueText()
+                            pcall(callback, selected)
+                            Crispylib._flags[dc.Flag] = selected
+                            RebuildOptions(searchInput.Text)
+                        end)
+                        table.insert(optionBtns, ob)
+                    end
+                end
+            end
+
+            RebuildOptions()
+            searchInput:GetPropertyChangedSignal("Text"):Connect(function() RebuildOptions(searchInput.Text) end)
+
+            local MAX_H = math.min(#options * 30 + 46, 220)
+            dropBtn.MouseButton1Click:Connect(function()
+                listOpen = not listOpen
+                if listOpen then
+                    listFrame.Visible = true; searchInput.Text = ""; RebuildOptions()
+                    Tween(listFrame, { Size = UDim2.new(0, 180, 0, MAX_H) }, TWEEN_INFO)
+                else
+                    Tween(listFrame, { Size = UDim2.new(0, 180, 0, 0) }, TWEEN_INFO)
+                    task.delay(0.2, function() listFrame.Visible = false end)
+                end
+            end)
+
+            local obj = {}
+            function obj:Set(v, silent)
+                selected = v; dropLabel.Text = ValueText()
+                if not silent then pcall(callback, selected) end
+                Crispylib._flags[dc.Flag] = selected
+                RebuildOptions()
+            end
+            function obj:Get() return selected end
+            function obj:SetOptions(newOpts) options = newOpts; RebuildOptions() end
+
+            RegisterFlag(dc.Flag,
+                function() return selected end,
+                function(v) obj:Set(v, true) end)
+            return obj
+        end
+
+        -- ── INPUT ─────────────────────────────────────────────────────────
+        function Tab:AddInput(ic)
+            ic = ic or {}
+            local callback = ic.Callback or function() end
+            local numeric  = ic.Numeric  or false
+
+            local row = MakeRow(self)
+            AddRowLabels(row, ic.Name, ic.Description)
+
+            local inputBg = Create("Frame", {
+                Size = UDim2.new(0, 160, 0, 28), Position = UDim2.new(1, -176, 0.5, -14),
+                BackgroundColor3 = Theme.InputBg, BorderSizePixel = 0, Parent = row,
+            })
+            Round(inputBg, 7)
+            Stroke(inputBg, Theme.InputBorder, 1)
+            local textBox = Create("TextBox", {
+                Size = UDim2.new(1, -16, 1, 0), Position = UDim2.new(0, 8, 0, 0),
+                BackgroundTransparency = 1,
+                PlaceholderText = ic.Placeholder or "", PlaceholderColor3 = Theme.SearchPlaceholder,
+                Text = tostring(ic.Default or ""), TextColor3 = Theme.LabelText,
+                TextSize = 12, Font = Enum.Font.Gotham,
+                TextXAlignment = Enum.TextXAlignment.Left, ClearTextOnFocus = false,
+                Parent = inputBg,
+            })
+
+            textBox.FocusLost:Connect(function(enter)
+                local v = textBox.Text
+                if numeric then v = tonumber(v) or 0; textBox.Text = tostring(v) end
+                pcall(callback, v, enter)
+                Crispylib._flags[ic.Flag] = v
+            end)
+
+            local obj = {}
+            function obj:Set(v, silent)
+                textBox.Text = tostring(v)
+                local val = numeric and (tonumber(v) or 0) or v
+                Crispylib._flags[ic.Flag] = val
+                if not silent then pcall(callback, val, false) end
+            end
+            function obj:Get() return textBox.Text end
+
+            RegisterFlag(ic.Flag,
+                function() return textBox.Text end,
+                function(v) obj:Set(v, true) end)
+            return obj
+        end
+
+        -- ── SLIDER ────────────────────────────────────────────────────────
+        function Tab:AddSlider(sc)
+            sc = sc or {}
+            local min      = sc.Min      or 0
+            local max      = sc.Max      or 100
+            local suffix   = sc.Suffix   or ""
+            local callback = sc.Callback or function() end
+            local value    = math.clamp(sc.Default or min, min, max)
+
+            local row = MakeRow(self, 66)
+            AddRowLabels(row, sc.Name, sc.Description)
+
+            local valLabel = Create("TextLabel", {
+                Name = "Val", Size = UDim2.new(0, 80, 0, 18), Position = UDim2.new(1, -96, 0, 12),
+                BackgroundTransparency = 1, Text = tostring(value)..suffix,
+                TextColor3 = Theme.ValueText, TextSize = 12, Font = Enum.Font.Gotham,
+                TextXAlignment = Enum.TextXAlignment.Right, Parent = row,
+            })
+            local trackBg = Create("Frame", {
+                Size = UDim2.new(1, -32, 0, 5), Position = UDim2.new(0, 16, 1, -18),
+                BackgroundColor3 = Theme.ToggleOff, BorderSizePixel = 0, Parent = row,
+            })
+            Round(trackBg, 3)
+            local trackFill = Create("Frame", {
+                Size = UDim2.new((value-min)/(max-min), 0, 1, 0),
+                BackgroundColor3 = Theme.TabActive, BorderSizePixel = 0, Parent = trackBg,
+            })
+            Round(trackFill, 3)
+            local knob = Create("Frame", {
+                Size = UDim2.new(0, 14, 0, 14), AnchorPoint = Vector2.new(0.5, 0.5),
+                Position = UDim2.new((value-min)/(max-min), 0, 0.5, 0),
+                BackgroundColor3 = Theme.ToggleKnob, BorderSizePixel = 0, ZIndex = 5, Parent = trackBg,
+            })
+            Round(knob, 7)
+
+            local dragging = false
+            local function UpdateSlider(pos)
+                local abs = trackBg.AbsolutePosition
+                local sz  = trackBg.AbsoluteSize
+                local t   = math.clamp((pos.X - abs.X) / sz.X, 0, 1)
+                value = math.floor(min + t * (max - min) + 0.5)
+                local frac = (value - min) / (max - min)
+                trackFill.Size = UDim2.new(frac, 0, 1, 0)
+                knob.Position  = UDim2.new(frac, 0, 0.5, 0)
+                valLabel.Text  = tostring(value) .. suffix
+                pcall(callback, value)
+                Crispylib._flags[sc.Flag] = value
+            end
+            trackBg.InputBegan:Connect(function(i)
+                if i.UserInputType == Enum.UserInputType.MouseButton1 then
+                    dragging = true; UpdateSlider(i.Position)
+                end
+            end)
+            UserInputService.InputChanged:Connect(function(i)
+                if dragging and i.UserInputType == Enum.UserInputType.MouseMovement then UpdateSlider(i.Position) end
+            end)
+            UserInputService.InputEnded:Connect(function(i)
+                if i.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
+            end)
+
+            local obj = {}
+            function obj:Set(v, silent)
+                value = math.clamp(v, min, max)
+                local frac = (value-min)/(max-min)
+                trackFill.Size = UDim2.new(frac, 0, 1, 0)
+                knob.Position  = UDim2.new(frac, 0, 0.5, 0)
+                valLabel.Text  = tostring(value)..suffix
+                Crispylib._flags[sc.Flag] = value
+                if not silent then pcall(callback, value) end
+            end
+            function obj:Get() return value end
+
+            RegisterFlag(sc.Flag,
+                function() return value end,
+                function(v) obj:Set(v, true) end)
+            return obj
+        end
+
+        -- ── BUTTON ────────────────────────────────────────────────────────
+        function Tab:AddButton(bc)
+            bc = bc or {}
+            local callback = bc.Callback or function() end
+            local row = MakeRow(self, 52)
+            AddRowLabels(row, bc.Name, bc.Description)
+            local btn = Create("TextButton", {
+                Size = UDim2.new(0, 100, 0, 28), Position = UDim2.new(1, -116, 0.5, -14),
+                BackgroundColor3 = Theme.TabActive, Text = bc.Label or "Run",
+                TextColor3 = Theme.TabActiveText, TextSize = 13, Font = Enum.Font.GothamSemibold,
+                BorderSizePixel = 0, AutoButtonColor = false, Parent = row,
+            })
+            Round(btn, 7)
+            btn.MouseEnter:Connect(function() Tween(btn, { BackgroundColor3 = Color3.fromRGB(30, 150, 255) }, TWEEN_INFO) end)
+            btn.MouseLeave:Connect(function() Tween(btn, { BackgroundColor3 = Theme.TabActive }, TWEEN_INFO) end)
+            btn.MouseButton1Click:Connect(function()
+                Tween(btn, { BackgroundColor3 = Color3.fromRGB(0, 100, 200) }, TWEEN_INFO)
+                task.delay(0.12, function() Tween(btn, { BackgroundColor3 = Theme.TabActive }, TWEEN_INFO) end)
+                pcall(callback)
+            end)
+            local obj = {}
+            function obj:SetLabel(t) btn.Text = t end
+            function obj:SetEnabled(e) btn.Active = e; btn.BackgroundTransparency = e and 0 or 0.5 end
+            return obj
+        end
+
+        -- ── KEYBIND ───────────────────────────────────────────────────────
+        function Tab:AddKeybind(kc)
+            kc = kc or {}
+            local currentKey = kc.Default  or Enum.KeyCode.Unknown
+            local callback   = kc.Callback or function() end
+            local listening  = false
+            local row = MakeRow(self)
+            AddRowLabels(row, kc.Name, kc.Description)
+            local kbBtn = Create("TextButton", {
+                Size = UDim2.new(0, 100, 0, 28), Position = UDim2.new(1, -116, 0.5, -14),
+                BackgroundColor3 = Theme.DropdownBg, Text = currentKey.Name,
+                TextColor3 = Theme.ValueText, TextSize = 12, Font = Enum.Font.GothamSemibold,
+                BorderSizePixel = 0, AutoButtonColor = false, Parent = row,
+            })
+            Round(kbBtn, 7); Stroke(kbBtn, Theme.DropdownBorder, 1)
+            kbBtn.MouseButton1Click:Connect(function()
+                if listening then return end
+                listening = true; kbBtn.Text = "..."; kbBtn.TextColor3 = Theme.SubtitleText
+            end)
+            UserInputService.InputBegan:Connect(function(inp)
+                if not listening then return end
+                if inp.UserInputType ~= Enum.UserInputType.Keyboard then return end
+                currentKey = inp.KeyCode; listening = false
+                kbBtn.Text = currentKey.Name; kbBtn.TextColor3 = Theme.ValueText
+            end)
+            UserInputService.InputBegan:Connect(function(inp, gpe)
+                if gpe then return end
+                if not listening and inp.UserInputType == Enum.UserInputType.Keyboard and inp.KeyCode == currentKey then
+                    pcall(callback, currentKey)
+                end
+            end)
+            local obj = {}
+            function obj:Set(key) currentKey = key; kbBtn.Text = key.Name end
+            function obj:Get() return currentKey end
+            return obj
+        end
+
+        -- ── COLOR PICKER ──────────────────────────────────────────────────
+        function Tab:AddColorPicker(cpc)
+            cpc = cpc or {}
+            local value    = cpc.Default  or Color3.fromRGB(255, 255, 255)
+            local callback = cpc.Callback or function() end
+            local row = MakeRow(self)
+            AddRowLabels(row, cpc.Name, cpc.Description)
+
+            local swatch = Create("Frame", {
+                Size = UDim2.new(0, 28, 0, 28), Position = UDim2.new(1, -44, 0.5, -14),
+                BackgroundColor3 = value, BorderSizePixel = 0, Parent = row,
+            })
+            Round(swatch, 7); Stroke(swatch, Theme.DropdownBorder, 1)
+            local swatchBtn = Create("TextButton", {
+                Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, Text = "", Parent = swatch,
+            })
+
+            local pickerOpen = false
+            local pickerFrame = Create("Frame", {
+                Size = UDim2.new(0, 200, 0, 0), Position = UDim2.new(1, -216, 1, 4),
+                BackgroundColor3 = Theme.DropdownBg, BorderSizePixel = 0,
+                ZIndex = 20, ClipsDescendants = true, Visible = false, Parent = row,
+            })
+            Round(pickerFrame, 8); Stroke(pickerFrame, Theme.DropdownBorder, 1)
+
+            local satBrBox = Create("ImageLabel", {
+                Size = UDim2.new(1, -16, 0, 130), Position = UDim2.new(0, 8, 0, 8),
+                BackgroundColor3 = Color3.fromRGB(255, 0, 0),
+                Image = "rbxassetid://6923790725", ZIndex = 21, Parent = pickerFrame,
+            })
+            Round(satBrBox, 6)
+            local satBrKnob = Create("Frame", {
+                Size = UDim2.new(0, 12, 0, 12), AnchorPoint = Vector2.new(0.5, 0.5),
+                BackgroundColor3 = Color3.fromRGB(255,255,255),
+                BorderSizePixel = 0, ZIndex = 22, Parent = satBrBox,
+            })
+            Round(satBrKnob, 6)
+            local hueBar = Create("ImageLabel", {
+                Size = UDim2.new(1, -16, 0, 14), Position = UDim2.new(0, 8, 0, 146),
+                Image = "rbxassetid://6923790674", ZIndex = 21, Parent = pickerFrame,
+            })
+            Round(hueBar, 4)
+            local hueKnob = Create("Frame", {
+                Size = UDim2.new(0, 10, 1, 4), AnchorPoint = Vector2.new(0.5, 0.5),
+                Position = UDim2.new(0, 0, 0.5, 0), BackgroundColor3 = Color3.fromRGB(255,255,255),
+                BorderSizePixel = 0, ZIndex = 22, Parent = hueBar,
+            })
+            Round(hueKnob, 3); Stroke(hueKnob, Color3.fromRGB(100,100,100), 1)
+            local colorPreview = Create("Frame", {
+                Size = UDim2.new(1, -16, 0, 20), Position = UDim2.new(0, 8, 0, 168),
+                BackgroundColor3 = value, BorderSizePixel = 0, ZIndex = 21, Parent = pickerFrame,
+            })
+            Round(colorPreview, 5)
+
+            local h, s, br = Color3.toHSV(value)
+            local function UpdateColor()
+                value = Color3.fromHSV(h, s, br)
+                swatch.BackgroundColor3      = value
+                colorPreview.BackgroundColor3 = value
+                satBrBox.BackgroundColor3    = Color3.fromHSV(h, 1, 1)
+                satBrKnob.Position = UDim2.new(s, -6, 1 - br, -6)
+                hueKnob.Position   = UDim2.new(h, -5, 0.5, 0)
+                pcall(callback, value)
+                Crispylib._flags[cpc.Flag] = value
+            end
+            UpdateColor()
+
+            local dSB, dH = false, false
+            satBrBox.InputBegan:Connect(function(i)
+                if i.UserInputType == Enum.UserInputType.MouseButton1 then
+                    dSB = true
+                    local abs = satBrBox.AbsolutePosition; local sz = satBrBox.AbsoluteSize
+                    s = math.clamp((i.Position.X - abs.X)/sz.X, 0, 1)
+                    br = math.clamp(1 - (i.Position.Y - abs.Y)/sz.Y, 0, 1); UpdateColor()
+                end
+            end)
+            UserInputService.InputChanged:Connect(function(i)
+                if dSB and i.UserInputType == Enum.UserInputType.MouseMovement then
+                    local abs = satBrBox.AbsolutePosition; local sz = satBrBox.AbsoluteSize
+                    s = math.clamp((i.Position.X - abs.X)/sz.X, 0, 1)
+                    br = math.clamp(1 - (i.Position.Y - abs.Y)/sz.Y, 0, 1); UpdateColor()
+                end
+                if dH and i.UserInputType == Enum.UserInputType.MouseMovement then
+                    local abs = hueBar.AbsolutePosition; local sz = hueBar.AbsoluteSize
+                    h = math.clamp((i.Position.X - abs.X)/sz.X, 0, 1); UpdateColor()
+                end
+            end)
+            UserInputService.InputEnded:Connect(function(i)
+                if i.UserInputType == Enum.UserInputType.MouseButton1 then dSB = false; dH = false end
+            end)
+            hueBar.InputBegan:Connect(function(i)
+                if i.UserInputType == Enum.UserInputType.MouseButton1 then
+                    dH = true
+                    local abs = hueBar.AbsolutePosition; local sz = hueBar.AbsoluteSize
+                    h = math.clamp((i.Position.X - abs.X)/sz.X, 0, 1); UpdateColor()
+                end
+            end)
+
+            swatchBtn.MouseButton1Click:Connect(function()
+                pickerOpen = not pickerOpen
+                if pickerOpen then
+                    pickerFrame.Visible = true
+                    Tween(pickerFrame, { Size = UDim2.new(0, 200, 0, 197) }, TWEEN_INFO)
+                else
+                    Tween(pickerFrame, { Size = UDim2.new(0, 200, 0, 0) }, TWEEN_INFO)
+                    task.delay(0.2, function() pickerFrame.Visible = false end)
+                end
+            end)
+
+            local obj = {}
+            function obj:Set(color, silent)
+                value = color; h, s, br = Color3.toHSV(color); UpdateColor()
+                if not silent then pcall(callback, value) end
+            end
+            function obj:Get() return value end
+
+            RegisterFlag(cpc.Flag,
+                function() return value end,
+                function(v) obj:Set(v, true) end)
+            return obj
+        end
+
+        -- ── SEPARATOR ─────────────────────────────────────────────────────
+        function Tab:AddSeparator()
+            self._order = self._order + 1
+            Create("Frame", {
+                Name = "Sep_"..self._order, Size = UDim2.new(1, -16, 0, 1),
+                BackgroundColor3 = Theme.Separator, BorderSizePixel = 0,
+                LayoutOrder = self._order, Parent = self._content,
+            })
+        end
+
+        return Tab
+    end -- AddTab
+
+    -- ── PROFILES TAB (auto-added when ConfigName is set) ──────────────────
+    if configName then
+        Window:AddSidebarSection("Settings")
+        local PTab = Window:AddTab({ Name = "Profiles", Icon = "📁" })
+
+        PTab:AddSection({
+            Title       = "💾 Config Profiles",
+            Description = "Save, load, import and export your settings.",
+        })
+
+        -- Profile name input
+        local profileNameInput = PTab:AddInput({
+            Name        = "Profile Name",
+            Description = "Name to save or load.",
+            Default     = "default",
+            Placeholder = "e.g. myconfig",
+        })
+
+        -- Save button
+        PTab:AddButton({
+            Name        = "Save Config",
+            Description = "Save current settings to a profile.",
+            Label       = "Save",
+            Callback    = function()
+                local name = profileNameInput:Get()
+                if name == "" then name = "default" end
+                local ok = Crispylib.Config.Save(name)
+                Crispylib.Notify({
+                    Title       = ok and "Saved" or "Save Failed",
+                    Description = ok and ('Profile "'..name..'" saved.') or "Could not write file.",
+                    Type        = ok and "success" or "error",
+                    Duration    = 3,
+                })
+            end,
+        })
+
+        -- Load button (also refreshes dropdown)
+        local profileList = Crispylib.Config.List()
+        if #profileList == 0 then profileList = { "default" } end
+
+        local profileDropdown = PTab:AddDropdown({
+            Name        = "Load Profile",
+            Description = "Choose a saved profile to load.",
+            Options     = profileList,
+            Default     = profileList[1],
+        })
+
+        PTab:AddButton({
+            Name        = "Load Config",
+            Description = "Apply the selected profile.",
+            Label       = "Load",
+            Callback    = function()
+                local name = profileDropdown:Get()
+                local ok   = Crispylib.Config.Load(tostring(name))
+                Crispylib.Notify({
+                    Title       = ok and "Loaded" or "Load Failed",
+                    Description = ok and ('Profile "'..name..'" applied.') or 'Profile "'..name..'" not found.',
+                    Type        = ok and "success" or "error",
+                    Duration    = 3,
+                })
+            end,
+        })
+
+        -- Refresh profile list
+        PTab:AddButton({
+            Name        = "Refresh List",
+            Description = "Reload the list of saved profiles.",
+            Label       = "Refresh",
+            Callback    = function()
+                local list = Crispylib.Config.List()
+                if #list == 0 then list = { "default" } end
+                profileDropdown:SetOptions(list)
+                Crispylib.Notify({
+                    Title       = "Refreshed",
+                    Description = "Found " .. #list .. " profile(s).",
+                    Type        = "info",
+                    Duration    = 2,
+                })
+            end,
+        })
+
+        -- Delete button
+        PTab:AddButton({
+            Name        = "Delete Profile",
+            Description = "Delete the selected profile file.",
+            Label       = "Delete",
+            Callback    = function()
+                local name = profileDropdown:Get()
+                local ok   = Crispylib.Config.Delete(tostring(name))
+                Crispylib.Notify({
+                    Title       = ok and "Deleted" or "Delete Failed",
+                    Description = ok and ('Profile "'..name..'" deleted.') or "Could not delete.",
+                    Type        = ok and "warn" or "error",
+                    Duration    = 3,
+                })
+            end,
+        })
+
+        PTab:AddSeparator()
+
+        -- Export panel
+        PTab:AddSection({
+            Title       = "📤 Export / Import",
+            Description = "Copy or paste JSON config data.",
+        })
+
+        -- Export input (shows JSON on button press)
+        local exportBox = PTab:AddInput({
+            Name        = "Exported JSON",
+            Description = "Click Export to populate this field.",
+            Default     = "",
+            Placeholder = "JSON will appear here...",
+        })
+
+        PTab:AddButton({
+            Name        = "Export Config",
+            Description = "Serialise current settings to JSON.",
+            Label       = "Export",
+            Callback    = function()
+                local json = Crispylib.Config.Export()
+                exportBox:Set(json)
+                Crispylib.Notify({
+                    Title       = "Exported",
+                    Description = "JSON copied to the Export field.",
+                    Type        = "info",
+                    Duration    = 3,
+                })
+            end,
+        })
+
+        -- Import input
+        local importBox = PTab:AddInput({
+            Name        = "Import JSON",
+            Description = "Paste a JSON config string, then click Import.",
+            Default     = "",
+            Placeholder = "Paste JSON here...",
+        })
+
+        PTab:AddButton({
+            Name        = "Import Config",
+            Description = "Apply settings from the pasted JSON.",
+            Label       = "Import",
+            Callback    = function()
+                local json = importBox:Get()
+                local ok   = Crispylib.Config.Import(json)
+                Crispylib.Notify({
+                    Title       = ok and "Imported" or "Import Failed",
+                    Description = ok and "Settings applied from JSON." or "Invalid JSON string.",
+                    Type        = ok and "success" or "error",
+                    Duration    = 3,
+                })
+            end,
+        })
+
+        -- Auto-load default profile on window creation
+        if autoLoad then
+            task.defer(function()
+                Crispylib.Config.Load("default")
+            end)
+        end
+    end
+
+    return Window
+end
+
+-- ────────────────────────────────────────────────────────────────────────────
+--  EXPOSE
+-- ────────────────────────────────────────────────────────────────────────────
+Crispylib.Theme = Theme
+
+return Crispylib
