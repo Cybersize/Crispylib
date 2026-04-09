@@ -1006,7 +1006,9 @@ function CrispyLib.CreateWindow(cfg)
 
             local function VT()
                 if multi then
-                    return #selected>0 and table.concat(selected,", ") or "None"
+                    if #selected==0 then return "None" end
+                    if #selected==1 then return selected[1] end
+                    return tostring(#selected).." selected"
                 end
                 return tostring(selected~="" and selected or "None")
             end
@@ -1066,7 +1068,7 @@ function CrispyLib.CreateWindow(cfg)
             sIn.FocusLost:Connect(function() Tween(sStk,{Color=Theme.Border},TI_FAST) end)
 
             local optScroll=Create("ScrollingFrame",{
-                Size=UDim2.new(1,-8,1,-46), Position=UDim2.new(0,4,0,40),
+                Size=UDim2.new(1,-8,1,multi and -84 or -46), Position=UDim2.new(0,4,0,40),
                 BackgroundTransparency=1, ScrollBarThickness=3,
                 ScrollBarImageColor3=Theme.ScrollThumb, BorderSizePixel=0,
                 CanvasSize=UDim2.new(0,0,0,0), AutomaticCanvasSize=Enum.AutomaticSize.Y,
@@ -1079,6 +1081,45 @@ function CrispyLib.CreateWindow(cfg)
             ListLayout(optList, Enum.FillDirection.Vertical, 2)
             Pad(optList,2,2,0,0)
 
+            -- Done + Clear buttons (multi-select only)
+            local doneBar
+            if multi then
+                doneBar=Create("Frame",{
+                    Size=UDim2.new(1,0,0,38), Position=UDim2.new(0,0,1,-38),
+                    BackgroundColor3=Theme.DropdownBg, BorderSizePixel=0,
+                    ZIndex=Z.Popup+1, Parent=listFrame,
+                })
+                Create("Frame",{
+                    Size=UDim2.new(1,-16,0,1), Position=UDim2.new(0,8,0,0),
+                    BackgroundColor3=Theme.Separator, BorderSizePixel=0,
+                    ZIndex=Z.Popup+2, Parent=doneBar,
+                })
+                local clearBtn=Create("TextButton",{
+                    Size=UDim2.new(0,50,0,26), Position=UDim2.new(0,8,0.5,-13),
+                    BackgroundColor3=Theme.InputBg, Text="Clear",
+                    TextColor3=Theme.SubtitleText, TextSize=11, Font=Enum.Font.GothamSemibold,
+                    BorderSizePixel=0, AutoButtonColor=false,
+                    ZIndex=Z.Popup+2, Parent=doneBar,
+                })
+                Round(clearBtn,5); Stroke(clearBtn,Theme.Border,1)
+                clearBtn.MouseButton1Click:Connect(function()
+                    selected={}; dLabel.Text=VT()
+                    CrispyLib._flags[dc.Flag]=selected; pcall(cb,selected)
+                    Rebuild(sIn.Text)
+                end)
+                local doneBtn=Create("TextButton",{
+                    Size=UDim2.new(1,-70,0,26), Position=UDim2.new(0,64,0.5,-13),
+                    BackgroundColor3=Theme.Accent, Text="Done",
+                    TextColor3=Color3.fromRGB(255,255,255), TextSize=12, Font=Enum.Font.GothamSemibold,
+                    BorderSizePixel=0, AutoButtonColor=false,
+                    ZIndex=Z.Popup+2, Parent=doneBar,
+                })
+                Round(doneBtn,5)
+                doneBtn.MouseEnter:Connect(function() Tween(doneBtn,{BackgroundColor3=Theme.AccentHover},TI_FAST) end)
+                doneBtn.MouseLeave:Connect(function() Tween(doneBtn,{BackgroundColor3=Theme.Accent},TI_FAST) end)
+                doneBtn.MouseButton1Click:Connect(function() CloseList() end)
+            end
+
             local function IsSel(opt)
                 if multi then
                     for _,v in ipairs(selected) do if v==opt then return true end end
@@ -1088,6 +1129,14 @@ function CrispyLib.CreateWindow(cfg)
             end
 
             local optBtns={}
+            local function CloseList()
+                listOpen=false
+                Tween(listFrame,{Size=UDim2.new(0,180,0,0)},TI_MID)
+                Tween(chev,{Rotation=0},TI_MID)
+                Tween(dStroke,{Color=Theme.Border},TI_MID)
+                task.delay(0.22,function() listFrame.Visible=false end)
+            end
+
             local function Rebuild(filter)
                 for _,c in ipairs(optBtns) do c:Destroy() end
                 optBtns={}
@@ -1098,35 +1147,68 @@ function CrispyLib.CreateWindow(cfg)
                         local ob=Create("TextButton",{
                             Size=UDim2.new(1,0,0,30),
                             BackgroundColor3=sel and Theme.Accent or Theme.DropdownBg,
-                            BackgroundTransparency=sel and 0.85 or 1,
+                            BackgroundTransparency=sel and 0.82 or 1,
                             Text="", BorderSizePixel=0, AutoButtonColor=false,
                             ZIndex=Z.Popup+2, Parent=optList,
                         })
-                        Round(ob,6)
-                        Create("TextLabel",{
-                            Size=UDim2.new(1,-16,1,0), Position=UDim2.new(0,10,0,0),
-                            BackgroundTransparency=1, Text=opt,
-                            TextColor3=sel and Theme.TabActiveText or Theme.LabelText,
-                            TextSize=12, Font=sel and Enum.Font.GothamSemibold or Enum.Font.Gotham,
-                            TextXAlignment=Enum.TextXAlignment.Left,
-                            TextTruncate=Enum.TextTruncate.AtEnd,
-                            ZIndex=Z.Popup+3, Parent=ob,
-                        })
-                        if multi and sel then
+                        Round(ob,5)
+                        if multi then
+                            -- Checkbox
+                            local cbBox=Create("Frame",{
+                                Size=UDim2.new(0,14,0,14), AnchorPoint=Vector2.new(0,0.5),
+                                Position=UDim2.new(0,10,0.5,0),
+                                BackgroundColor3=sel and Theme.Accent or Color3.fromRGB(0,0,0),
+                                BackgroundTransparency=sel and 0 or 1,
+                                BorderSizePixel=0, ZIndex=Z.Popup+3, Parent=ob,
+                            })
+                            Round(cbBox,3)
+                            Create("UIStroke",{
+                                Color=sel and Theme.Accent or Theme.Border,
+                                Thickness=1.5, Parent=cbBox,
+                            })
+                            if sel then
+                                Create("TextLabel",{
+                                    Size=UDim2.new(1,0,1,0), BackgroundTransparency=1,
+                                    Text="✓", TextColor3=Color3.fromRGB(255,255,255),
+                                    TextSize=9, Font=Enum.Font.GothamBold,
+                                    ZIndex=Z.Popup+4, Parent=cbBox,
+                                })
+                            end
                             Create("TextLabel",{
-                                Size=UDim2.new(0,18,1,0), Position=UDim2.new(1,-20,0,0),
-                                BackgroundTransparency=1, Text="✓",
-                                TextColor3=Theme.Accent, TextSize=12, Font=Enum.Font.GothamBold,
+                                Size=UDim2.new(1,-34,1,0), Position=UDim2.new(0,30,0,0),
+                                BackgroundTransparency=1, Text=opt,
+                                TextColor3=sel and Theme.TabActiveText or Theme.LabelText,
+                                TextSize=12, Font=sel and Enum.Font.GothamSemibold or Enum.Font.Gotham,
+                                TextXAlignment=Enum.TextXAlignment.Left,
+                                TextTruncate=Enum.TextTruncate.AtEnd,
                                 ZIndex=Z.Popup+3, Parent=ob,
                             })
+                        else
+                            Create("TextLabel",{
+                                Size=UDim2.new(1,-20,1,0), Position=UDim2.new(0,10,0,0),
+                                BackgroundTransparency=1, Text=opt,
+                                TextColor3=sel and Theme.TabActiveText or Theme.LabelText,
+                                TextSize=12, Font=sel and Enum.Font.GothamSemibold or Enum.Font.Gotham,
+                                TextXAlignment=Enum.TextXAlignment.Left,
+                                TextTruncate=Enum.TextTruncate.AtEnd,
+                                ZIndex=Z.Popup+3, Parent=ob,
+                            })
+                            if sel then
+                                Create("TextLabel",{
+                                    Size=UDim2.new(0,18,1,0), Position=UDim2.new(1,-20,0,0),
+                                    BackgroundTransparency=1, Text="✓",
+                                    TextColor3=Theme.Accent, TextSize=11, Font=Enum.Font.GothamBold,
+                                    ZIndex=Z.Popup+3, Parent=ob,
+                                })
+                            end
                         end
                         ob.MouseEnter:Connect(function()
                             if not IsSel(opt) then
-                                Tween(ob,{BackgroundColor3=Theme.ItemHover,BackgroundTransparency=0},TI_FAST)
+                                Tween(ob,{BackgroundColor3=Theme.ItemHover,BackgroundTransparency=0.6},TI_FAST)
                             end
                         end)
                         ob.MouseLeave:Connect(function()
-                            if not IsSel(opt) then Tween(ob,{BackgroundTransparency=1},TI_FAST) end
+                            if not sel then Tween(ob,{BackgroundColor3=Theme.DropdownBg,BackgroundTransparency=1},TI_FAST) end
                         end)
                         ob.MouseButton1Click:Connect(function()
                             if multi then
@@ -1137,11 +1219,7 @@ function CrispyLib.CreateWindow(cfg)
                                 if not found then table.insert(selected,opt) end
                             else
                                 selected=opt
-                                listOpen=false
-                                Tween(listFrame,{Size=UDim2.new(0,180,0,0)},TI_MID)
-                                Tween(chev,{Rotation=0},TI_MID)
-                                Tween(dStroke,{Color=Theme.Border},TI_MID)
-                                task.delay(0.22,function() listFrame.Visible=false end)
+                                CloseList()
                             end
                             dLabel.Text=VT()
                             CrispyLib._flags[dc.Flag]=selected
@@ -1156,7 +1234,7 @@ function CrispyLib.CreateWindow(cfg)
             Rebuild()
             sIn:GetPropertyChangedSignal("Text"):Connect(function() Rebuild(sIn.Text) end)
 
-            local MAX_H=math.min(#options*32+50,230)
+            local MAX_H=multi and math.min(#options*30+88,270) or math.min(#options*32+50,230)
 
             local function ReposDropdown()
                 -- Place popup below the dBtn in absolute screen coords
@@ -1174,10 +1252,7 @@ function CrispyLib.CreateWindow(cfg)
                     Tween(chev,{Rotation=180},TI_MID)
                     Tween(dStroke,{Color=Theme.FocusBorder},TI_MID)
                 else
-                    Tween(listFrame,{Size=UDim2.new(0,180,0,0)},TI_MID)
-                    Tween(chev,{Rotation=0},TI_MID)
-                    Tween(dStroke,{Color=Theme.Border},TI_MID)
-                    task.delay(0.22,function() listFrame.Visible=false end)
+                    CloseList()
                 end
             end)
 
