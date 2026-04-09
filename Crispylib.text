@@ -1,6 +1,7 @@
 --[[
     CrispyLib  –  Lua UI Library for Roblox executors
     macOS-inspired dark GUI
+    PATCHED: guarded all CrispyLib._flags[x] = v writes against nil keys.
 
     USAGE
     ─────
@@ -12,7 +13,7 @@
     local Window = CrispyLib.CreateWindow({
         Title      = "Crispy Hub",
         Subtitle   = "by you",
-        ConfigName = "MyScript",   -- enables Profiles tab + file I/O
+        ConfigName = "MyScript",
         AutoLoad   = true,
     })
 
@@ -99,13 +100,12 @@ local SIDEBAR_W  = 210
 local TITLEBAR_H = 50
 local ROW_H      = 62
 
--- ZIndex layers (Global mode)
 local Z = {
     Window    = 1,
     TitleBar  = 10,
     Sidebar   = 6,
     Content   = 2,
-    Popup     = 100,   -- dropdowns, color pickers
+    Popup     = 100,
     PopupItem = 101,
 }
 
@@ -213,7 +213,9 @@ local function CFG_PATH(n) return CFG_DIR().."/"..n..".json" end
 local function MKDIR()
     if _hasFolder then pcall(makefolder,"CrispyLib");pcall(makefolder,CFG_DIR()) end
 end
+-- FIX: guard against nil flag keys in all registration and assignment calls
 local function RegFlag(f,g,s) if f then CrispyLib._flagElements[f]={Get=g,Set=s} end end
+local function SetFlag(f,v) if f ~= nil then CrispyLib._flags[f]=v end end
 
 CrispyLib.Config = {}
 
@@ -491,7 +493,6 @@ function CrispyLib.CreateWindow(cfg)
 
     if configName then CrispyLib._configName = configName end
 
-    -- ── ScreenGui  (Global ZIndex so dropdown always renders on top) ──────
     local sg = Create("ScreenGui",{
         Name = "CrispyLib_"..title:gsub("%s+",""),
         ResetOnSpawn=false,
@@ -501,7 +502,6 @@ function CrispyLib.CreateWindow(cfg)
     pcall(function() sg.Parent=CoreGui end)
     if not sg.Parent then sg.Parent=LocalPlayer:WaitForChild("PlayerGui") end
 
-    -- ── Window frame (NO ClipsDescendants so popups aren't clipped) ───────
     local window=Create("Frame",{
         Name="Window",
         Size=UDim2.new(0,WIN_W,0,WIN_H),
@@ -513,12 +513,9 @@ function CrispyLib.CreateWindow(cfg)
     Round(window, 12)
     Stroke(window, Color3.fromRGB(50,50,58), 1)
 
-    -- Animate in
     window.BackgroundTransparency=0.8
     Tween(window,{BackgroundTransparency=0},TI_EASE)
 
-    -- ── Title bar ─────────────────────────────────────────────────────────
-    -- No Round() on titlebar – avoids visible rounded bottom corners
     local titleBar=Create("Frame",{
         Name="TitleBar",
         Size=UDim2.new(1,0,0,TITLEBAR_H),
@@ -526,22 +523,18 @@ function CrispyLib.CreateWindow(cfg)
         BorderSizePixel=0,
         ZIndex=Z.TitleBar, Parent=window,
     })
-    -- Only round the TOP corners visually by masking the bottom half
     Create("UICorner",{CornerRadius=UDim.new(0,12), Parent=titleBar})
-    -- Fill frame to square off the bottom half of the titlebar (hides bottom rounding)
     Create("Frame",{
         Size=UDim2.new(1,0,0.5,0), Position=UDim2.new(0,0,0.5,0),
         BackgroundColor3=Theme.TitleBarBg,
         BorderSizePixel=0, ZIndex=Z.TitleBar, Parent=titleBar,
     })
-    -- Bottom separator line
     Create("Frame",{
         Size=UDim2.new(1,0,0,1), Position=UDim2.new(0,0,1,-1),
         BackgroundColor3=Theme.Separator,
         BorderSizePixel=0, ZIndex=Z.TitleBar+1, Parent=titleBar,
     })
 
-    -- Traffic lights
     local function TBtn(col, par)
         local f=Create("Frame",{Size=UDim2.new(0,13,0,13),
             BackgroundColor3=col,BorderSizePixel=0,ZIndex=Z.TitleBar+1,Parent=par})
@@ -556,7 +549,6 @@ function CrispyLib.CreateWindow(cfg)
     local minBtn   = TBtn(Theme.MinBtn,   btnRow)
     TBtn(Theme.MaxBtn, btnRow)
 
-    -- Sidebar toggle
     local sbToggle=Create("TextButton",{
         Size=UDim2.new(0,26,0,26), Position=UDim2.new(0,86,0.5,-13),
         BackgroundColor3=Theme.TabHover, BackgroundTransparency=1,
@@ -568,10 +560,8 @@ function CrispyLib.CreateWindow(cfg)
     sbToggle.MouseEnter:Connect(function() Tween(sbToggle,{BackgroundTransparency=0.55},TI_FAST) end)
     sbToggle.MouseLeave:Connect(function() Tween(sbToggle,{BackgroundTransparency=1},TI_FAST) end)
 
-    -- Back / Forward  (tab history navigation)
     local _history = {}
     local _histIdx = 0
-    local _navMode = false   -- true when navigating history (don't push)
 
     local function NavBtn(txt, x)
         local b=Create("TextButton",{
@@ -585,7 +575,6 @@ function CrispyLib.CreateWindow(cfg)
     local backBtn = NavBtn("‹", 120)
     local fwdBtn  = NavBtn("›", 144)
 
-    -- Center title
     local tF=Create("Frame",{
         Size=UDim2.new(0,220,1,0), Position=UDim2.new(0.5,-110,0,0),
         BackgroundTransparency=1, ZIndex=Z.TitleBar+1, Parent=titleBar,
@@ -605,7 +594,6 @@ function CrispyLib.CreateWindow(cfg)
         ZIndex=Z.TitleBar+1, Parent=tF,
     })
 
-    -- Search bar
     local searchBg=Create("Frame",{
         Size=UDim2.new(0,155,0,28), Position=UDim2.new(1,-168,0.5,-14),
         BackgroundColor3=Theme.InputBg, BorderSizePixel=0,
@@ -630,7 +618,6 @@ function CrispyLib.CreateWindow(cfg)
     searchBox.Focused:Connect(function() Tween(sStroke,{Color=Theme.FocusBorder},TI_FAST) end)
     searchBox.FocusLost:Connect(function() Tween(sStroke,{Color=Theme.Border},TI_FAST) end)
 
-    -- ── Sidebar ───────────────────────────────────────────────────────────
     local sidebar=Create("Frame",{
         Name="Sidebar",
         Size=UDim2.new(0,SIDEBAR_W,1,-TITLEBAR_H),
@@ -638,7 +625,6 @@ function CrispyLib.CreateWindow(cfg)
         BackgroundColor3=Theme.SidebarBg,
         BorderSizePixel=0, ZIndex=Z.Sidebar, Parent=window,
     })
-    -- Right border
     Create("Frame",{
         Size=UDim2.new(0,1,1,0), Position=UDim2.new(1,-1,0,0),
         BackgroundColor3=Theme.Separator,
@@ -652,7 +638,6 @@ function CrispyLib.CreateWindow(cfg)
     })
     ListLayout(sbList, Enum.FillDirection.Vertical, 1)
 
-    -- ── Content area ──────────────────────────────────────────────────────
     local content=Create("Frame",{
         Name="Content",
         Size=UDim2.new(1,-SIDEBAR_W,1,-TITLEBAR_H),
@@ -663,7 +648,6 @@ function CrispyLib.CreateWindow(cfg)
 
     Draggable(titleBar, window)
 
-    -- Window controls
     local minimised=false
     closeBtn.InputBegan:Connect(function(i)
         if i.UserInputType==Enum.UserInputType.MouseButton1 then
@@ -692,7 +676,6 @@ function CrispyLib.CreateWindow(cfg)
         end
     end)
 
-    -- ── Window object ─────────────────────────────────────────────────────
     local Win      = {}
     Win._tabs      = {}
     Win._activeTab = nil
@@ -700,7 +683,6 @@ function CrispyLib.CreateWindow(cfg)
     Win._content   = content
     Win._order     = 0
 
-    -- Search: filter rows in active tab
     searchBox:GetPropertyChangedSignal("Text"):Connect(function()
         local query = searchBox.Text:lower()
         if not Win._activeTab then return end
@@ -716,12 +698,10 @@ function CrispyLib.CreateWindow(cfg)
         end
     end)
 
-    -- Back / Forward navigation
     local function ActivateTab(tab, pushHistory)
         if Win._activeTab and Win._activeTab~=tab then
             local prev=Win._activeTab
             Tween(prev._btn,{BackgroundTransparency=1},TI_MID)
-            -- (accent bar removed)
             local pIcon=prev._btn:FindFirstChild("Icon")
             local pLabel=prev._btn:FindFirstChild("Label")
             if pIcon then pIcon.TextColor3=Theme.TabInactive end
@@ -730,21 +710,18 @@ function CrispyLib.CreateWindow(cfg)
         end
         Win._activeTab=tab
         Tween(tab._btn,{BackgroundColor3=Theme.Accent,BackgroundTransparency=0},TI_MID)
-        -- (accent bar removed)
         local icon=tab._btn:FindFirstChild("Icon")
         local label=tab._btn:FindFirstChild("Label")
         if icon then icon.TextColor3=Theme.TabActiveText end
         if label then label.TextColor3=Theme.TabActiveText; label.Font=Enum.Font.GothamSemibold end
         tab._scroll.Visible=true
 
-        -- Clear search
         searchBox.Text=""
         for _, child in ipairs(tab._content:GetChildren()) do
             if child.Name:sub(1,4)=="Row_" then child.Visible=true end
         end
 
         if pushHistory then
-            -- Truncate forward history
             while #_history > _histIdx do table.remove(_history) end
             _histIdx=_histIdx+1
             _history[_histIdx]=tab
@@ -764,7 +741,6 @@ function CrispyLib.CreateWindow(cfg)
         end
     end)
 
-    -- ── Sidebar section label ─────────────────────────────────────────────
     function Win:AddSidebarSection(name)
         local lbl=Create("TextLabel",{
             Name="Sec_"..name, Size=UDim2.new(1,0,0,24),
@@ -776,7 +752,6 @@ function CrispyLib.CreateWindow(cfg)
         Pad(lbl,0,0,18,0); self._order=self._order+1
     end
 
-    -- ── Add Tab ───────────────────────────────────────────────────────────
     function Win:AddTab(tabCfg)
         tabCfg=tabCfg or{}
         local tName=tabCfg.Name or "Tab"
@@ -790,8 +765,6 @@ function CrispyLib.CreateWindow(cfg)
             AutoButtonColor=false, ZIndex=Z.Sidebar+1, Parent=self._sbList,
         })
         Round(tabBtn,6)
-
-        -- (no left accent bar – whole tab is the highlight)
 
         local iconLbl=Create("TextLabel",{
             Name="Icon", Size=UDim2.new(0,20,1,0), Position=UDim2.new(0,10,0,0),
@@ -983,7 +956,7 @@ function CrispyLib.CreateWindow(cfg)
                 val=v
                 Tween(track,{BackgroundColor3=val and Theme.Accent or Theme.ToggleOff},TI_MID)
                 Tween(knob,{Position=val and UDim2.new(0,22,0.5,-11) or UDim2.new(0,2,0.5,-11)},TI_MID)
-                CrispyLib._flags[tc.Flag]=val
+                SetFlag(tc.Flag, val)  -- FIX: was CrispyLib._flags[tc.Flag]=val (crashed when Flag is nil)
                 if not silent then pcall(cb,val) end
             end
             btn.MouseButton1Click:Connect(function() Apply(not val) end)
@@ -1037,8 +1010,6 @@ function CrispyLib.CreateWindow(cfg)
                 ZIndex=Z.Content+4, Parent=dBtn,
             })
 
-            -- Popup parented to sg (ScreenGui) so it's never clipped by any Frame
-            -- We position it using AbsolutePosition of dBtn each time it opens
             local listOpen=false
             local listFrame=Create("Frame",{
                 Name="DropList_"..tostring(self._order),
@@ -1081,7 +1052,6 @@ function CrispyLib.CreateWindow(cfg)
             ListLayout(optList, Enum.FillDirection.Vertical, 2)
             Pad(optList,2,2,0,0)
 
-            -- Done + Clear buttons (multi-select only)
             local doneBar
             if multi then
                 doneBar=Create("Frame",{
@@ -1104,7 +1074,8 @@ function CrispyLib.CreateWindow(cfg)
                 Round(clearBtn,5); Stroke(clearBtn,Theme.Border,1)
                 clearBtn.MouseButton1Click:Connect(function()
                     selected={}; dLabel.Text=VT()
-                    CrispyLib._flags[dc.Flag]=selected; pcall(cb,selected)
+                    SetFlag(dc.Flag, selected)  -- FIX: guarded nil flag
+                    pcall(cb,selected)
                     Rebuild(sIn.Text)
                 end)
                 local doneBtn=Create("TextButton",{
@@ -1153,7 +1124,6 @@ function CrispyLib.CreateWindow(cfg)
                         })
                         Round(ob,5)
                         if multi then
-                            -- Checkbox
                             local cbBox=Create("Frame",{
                                 Size=UDim2.new(0,14,0,14), AnchorPoint=Vector2.new(0,0.5),
                                 Position=UDim2.new(0,10,0.5,0),
@@ -1222,7 +1192,7 @@ function CrispyLib.CreateWindow(cfg)
                                 CloseList()
                             end
                             dLabel.Text=VT()
-                            CrispyLib._flags[dc.Flag]=selected
+                            SetFlag(dc.Flag, selected)  -- FIX: guarded nil flag
                             pcall(cb,selected)
                             Rebuild(sIn.Text)
                         end)
@@ -1237,7 +1207,6 @@ function CrispyLib.CreateWindow(cfg)
             local MAX_H=multi and math.min(#options*30+88,270) or math.min(#options*32+50,230)
 
             local function ReposDropdown()
-                -- Place popup below the dBtn in absolute screen coords
                 local abp = dBtn.AbsolutePosition
                 local abs = dBtn.AbsoluteSize
                 listFrame.Position = UDim2.new(0, abp.X, 0, abp.Y + abs.Y + 4)
@@ -1256,11 +1225,9 @@ function CrispyLib.CreateWindow(cfg)
                 end
             end)
 
-            -- Close dropdown when clicking elsewhere
             UserInputService.InputBegan:Connect(function(inp)
                 if not listOpen then return end
                 if inp.UserInputType==Enum.UserInputType.MouseButton1 then
-                    -- Check if click is outside the listFrame
                     local mp=UserInputService:GetMouseLocation()
                     local lp=listFrame.AbsolutePosition
                     local ls=listFrame.AbsoluteSize
@@ -1280,7 +1247,7 @@ function CrispyLib.CreateWindow(cfg)
             local obj={}
             function obj:Set(v,s)
                 selected=v; dLabel.Text=VT()
-                CrispyLib._flags[dc.Flag]=selected
+                SetFlag(dc.Flag, selected)  -- FIX: guarded nil flag
                 if not s then pcall(cb,selected) end; Rebuild()
             end
             function obj:Get() return selected end
@@ -1319,13 +1286,14 @@ function CrispyLib.CreateWindow(cfg)
                 Tween(iStroke,{Color=Theme.Border,Thickness=1},TI_FAST)
                 local v=tb.Text
                 if numeric then v=tonumber(v) or 0; tb.Text=tostring(v) end
-                CrispyLib._flags[ic.Flag]=v; pcall(cb,v,true)
+                SetFlag(ic.Flag, v)  -- FIX: guarded nil flag
+                pcall(cb,v,true)
             end)
             local obj={}
             function obj:Set(v,s)
                 tb.Text=tostring(v)
                 local val=numeric and (tonumber(v) or 0) or v
-                CrispyLib._flags[ic.Flag]=val
+                SetFlag(ic.Flag, val)  -- FIX: guarded nil flag
                 if not s then pcall(cb,val,false) end
             end
             function obj:Get() return tb.Text end
@@ -1382,7 +1350,8 @@ function CrispyLib.CreateWindow(cfg)
                 fill.Size=UDim2.new(frac,0,1,0)
                 knob.Position=UDim2.new(frac,0,0.5,0)
                 vLbl.Text=tostring(val)..suffix
-                CrispyLib._flags[sc.Flag]=val; pcall(cb,val)
+                SetFlag(sc.Flag, val)  -- FIX: guarded nil flag
+                pcall(cb,val)
             end
             trackBg.InputBegan:Connect(function(i)
                 if i.UserInputType==Enum.UserInputType.MouseButton1 then
@@ -1405,7 +1374,7 @@ function CrispyLib.CreateWindow(cfg)
                 fill.Size=UDim2.new(frac,0,1,0)
                 knob.Position=UDim2.new(frac,0,0.5,0)
                 vLbl.Text=tostring(val)..suffix
-                CrispyLib._flags[sc.Flag]=val
+                SetFlag(sc.Flag, val)  -- FIX: guarded nil flag
                 if not s then pcall(cb,val) end
             end
             function obj:Get() return val end
@@ -1485,7 +1454,7 @@ function CrispyLib.CreateWindow(cfg)
             return obj
         end
 
-        -- ── Color Picker ─────────────────────────────────────────────────────
+        -- ── Color Picker ───────────────────────────────────────────────
         function Tab:AddColorPicker(cpc)
             cpc=cpc or{}
             local val=cpc.Default or Color3.fromRGB(255,255,255)
@@ -1513,7 +1482,6 @@ function CrispyLib.CreateWindow(cfg)
             })
             Round(pFrame,10); Stroke(pFrame,Theme.Border,1)
 
-            -- SV box: hue-coloured bg + white-to-hue horizontal gradient + transparent-to-black vertical gradient
             local sbBox=Create("Frame",{
                 Size=UDim2.new(1,-16,0,130), Position=UDim2.new(0,8,0,8),
                 BackgroundColor3=Color3.fromRGB(255,0,0),
@@ -1527,7 +1495,6 @@ function CrispyLib.CreateWindow(cfg)
                 }),
                 Rotation=0, Parent=sbBox,
             })
-            -- Vertical dark overlay (top transparent → bottom black)
             local sbDark=Create("Frame",{
                 Size=UDim2.new(1,0,1,0),
                 BackgroundColor3=Color3.fromRGB(0,0,0), BorderSizePixel=0,
@@ -1553,7 +1520,6 @@ function CrispyLib.CreateWindow(cfg)
             Round(sbKnob,6)
             Create("UIStroke",{Color=Color3.fromRGB(0,0,0),Transparency=0.5,Thickness=1.5,Parent=sbKnob})
 
-            -- Hue bar: full rainbow gradient
             local hBar=Create("Frame",{
                 Size=UDim2.new(1,-16,0,14), Position=UDim2.new(0,8,0,146),
                 BackgroundColor3=Color3.fromRGB(255,255,255),
@@ -1605,7 +1571,8 @@ function CrispyLib.CreateWindow(cfg)
                 })
                 sbKnob.Position=UDim2.new(s,-6,1-br,-6)
                 hKnob.Position=UDim2.new(h,-5,0.5,0)
-                CrispyLib._flags[cpc.Flag]=val; pcall(cb,val)
+                SetFlag(cpc.Flag, val)  -- FIX: guarded nil flag
+                pcall(cb,val)
             end
             UpdColor()
 
@@ -1635,7 +1602,6 @@ function CrispyLib.CreateWindow(cfg)
                 if i.UserInputType==Enum.UserInputType.MouseButton1 then dSB=false;dH=false end
             end)
 
-            -- Close picker when clicking outside
             UserInputService.InputBegan:Connect(function(inp)
                 if not pOpen then return end
                 if inp.UserInputType~=Enum.UserInputType.MouseButton1 then return end
@@ -1678,7 +1644,6 @@ function CrispyLib.CreateWindow(cfg)
             RegFlag(cpc.Flag, function()return val end, function(v)obj:Set(v,true)end)
             return obj
         end
-
 
         -- ── Separator / Spacer ─────────────────────────────────────────
         function Tab:AddSeparator()
