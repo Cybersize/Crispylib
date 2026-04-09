@@ -44,7 +44,7 @@ local LocalPlayer      = Players.LocalPlayer
 local Theme = {
     WindowBg      = Color3.fromRGB(26, 26, 28),
     SidebarBg     = Color3.fromRGB(20, 20, 22),
-    ContentBg     = Color3.fromRGB(32, 32, 35),
+    ContentBg     = Color3.fromRGB(30, 30, 33),
     TitleBarBg    = Color3.fromRGB(24, 24, 26),
     RowHover      = Color3.fromRGB(42, 42, 48),
 
@@ -645,7 +645,7 @@ function CrispyLib.CreateWindow(cfg)
         BorderSizePixel=0, ZIndex=Z.Sidebar+1, Parent=sidebar,
     })
     local sbScroll=ScrollFrame(sidebar, Z.Sidebar)
-    Pad(sbScroll,12,12,0,0)
+    Pad(sbScroll,8,8,8,8)
     local sbList=Create("Frame",{
         Size=UDim2.new(1,0,0,0), AutomaticSize=Enum.AutomaticSize.Y,
         BackgroundTransparency=1, ZIndex=Z.Sidebar, Parent=sbScroll,
@@ -721,8 +721,7 @@ function CrispyLib.CreateWindow(cfg)
         if Win._activeTab and Win._activeTab~=tab then
             local prev=Win._activeTab
             Tween(prev._btn,{BackgroundTransparency=1},TI_MID)
-            local pAcc=prev._btn:FindFirstChild("Accent")
-            if pAcc then pAcc.BackgroundTransparency=1 end
+            -- (accent bar removed)
             local pIcon=prev._btn:FindFirstChild("Icon")
             local pLabel=prev._btn:FindFirstChild("Label")
             if pIcon then pIcon.TextColor3=Theme.TabInactive end
@@ -730,9 +729,8 @@ function CrispyLib.CreateWindow(cfg)
             prev._scroll.Visible=false
         end
         Win._activeTab=tab
-        Tween(tab._btn,{BackgroundColor3=Theme.Accent,BackgroundTransparency=0.88},TI_MID)
-        local acc=tab._btn:FindFirstChild("Accent")
-        if acc then Tween(acc,{BackgroundTransparency=0},TI_MID) end
+        Tween(tab._btn,{BackgroundColor3=Theme.Accent,BackgroundTransparency=0},TI_MID)
+        -- (accent bar removed)
         local icon=tab._btn:FindFirstChild("Icon")
         local label=tab._btn:FindFirstChild("Label")
         if icon then icon.TextColor3=Theme.TabActiveText end
@@ -786,30 +784,24 @@ function CrispyLib.CreateWindow(cfg)
         self._order=self._order+1
 
         local tabBtn=Create("TextButton",{
-            Name="Tab_"..tName, Size=UDim2.new(1,-16,0,34),
+            Name="Tab_"..tName, Size=UDim2.new(1,0,0,34),
             BackgroundColor3=Theme.SidebarBg, BackgroundTransparency=1,
             Text="", BorderSizePixel=0, LayoutOrder=self._order,
             AutoButtonColor=false, ZIndex=Z.Sidebar+1, Parent=self._sbList,
         })
-        Round(tabBtn,8)
+        Round(tabBtn,6)
 
-        local accentBar=Create("Frame",{
-            Name="Accent", Size=UDim2.new(0,3,0,18),
-            Position=UDim2.new(0,1,0.5,-9), BackgroundColor3=Theme.Accent,
-            BackgroundTransparency=1, BorderSizePixel=0,
-            ZIndex=Z.Sidebar+2, Parent=tabBtn,
-        })
-        Round(accentBar,2)
+        -- (no left accent bar – whole tab is the highlight)
 
         local iconLbl=Create("TextLabel",{
-            Name="Icon", Size=UDim2.new(0,20,1,0), Position=UDim2.new(0,14,0,0),
+            Name="Icon", Size=UDim2.new(0,20,1,0), Position=UDim2.new(0,10,0,0),
             BackgroundTransparency=1, Text=tIcon, TextColor3=Theme.TabInactive,
             TextSize=14, Font=Enum.Font.Gotham,
             TextXAlignment=Enum.TextXAlignment.Left,
             ZIndex=Z.Sidebar+2, Parent=tabBtn,
         })
         local nameLbl=Create("TextLabel",{
-            Name="Label", Size=UDim2.new(1,-38,1,0), Position=UDim2.new(0,36,0,0),
+            Name="Label", Size=UDim2.new(1,-34,1,0), Position=UDim2.new(0,32,0,0),
             BackgroundTransparency=1, Text=tName, TextColor3=Theme.TabInactive,
             TextSize=13, Font=Enum.Font.Gotham,
             TextXAlignment=Enum.TextXAlignment.Left,
@@ -817,17 +809,17 @@ function CrispyLib.CreateWindow(cfg)
         })
 
         tabBtn.MouseEnter:Connect(function()
-            if self._activeTab~=Tab then
-                Tween(tabBtn,{BackgroundColor3=Theme.TabHover,BackgroundTransparency=0.5},TI_FAST)
+            if Win._activeTab~=Tab then
+                Tween(tabBtn,{BackgroundColor3=Color3.fromRGB(44,44,52),BackgroundTransparency=0.6},TI_FAST)
             end
         end)
         tabBtn.MouseLeave:Connect(function()
-            if self._activeTab~=Tab then Tween(tabBtn,{BackgroundTransparency=1},TI_FAST) end
+            if Win._activeTab~=Tab then Tween(tabBtn,{BackgroundTransparency=1},TI_FAST) end
         end)
 
         local tabScroll=ScrollFrame(self._content, Z.Content)
         tabScroll.Visible=false
-        Pad(tabScroll,2,16,0,0)
+        Pad(tabScroll,0,16,0,0)
 
         local tabContent=Create("Frame",{
             Name="Content_"..tName, Size=UDim2.new(1,0,0,0),
@@ -864,15 +856,8 @@ function CrispyLib.CreateWindow(cfg)
                 BackgroundTransparency=1,
                 LayoutOrder=self._order, ZIndex=Z.Content, Parent=self._content,
             })
-            local stripe=Create("Frame",{
-                Name="Stripe", Size=UDim2.new(0,3,0,hasDesc and 32 or 22),
-                Position=UDim2.new(0,16,0.5,0), AnchorPoint=Vector2.new(0,0.5),
-                BackgroundColor3=Theme.Accent,
-                BorderSizePixel=0, ZIndex=Z.Content+1, Parent=frame,
-            })
-            Round(stripe,2)
             Create("TextLabel",{
-                Size=UDim2.new(1,-40,0,20), Position=UDim2.new(0,26,0,hasDesc and 10 or 11),
+                Size=UDim2.new(1,-32,0,20), Position=UDim2.new(0,16,0,hasDesc and 10 or 11),
                 BackgroundTransparency=1, Text=sc.Title or "",
                 TextColor3=Theme.TitleText, TextSize=14, Font=Enum.Font.GothamBold,
                 TextXAlignment=Enum.TextXAlignment.Left,
@@ -880,7 +865,7 @@ function CrispyLib.CreateWindow(cfg)
             })
             if hasDesc then
                 Create("TextLabel",{
-                    Size=UDim2.new(1,-40,0,14), Position=UDim2.new(0,26,0,30),
+                    Size=UDim2.new(1,-32,0,14), Position=UDim2.new(0,16,0,30),
                     BackgroundTransparency=1, Text=sc.Description,
                     TextColor3=Theme.DescText, TextSize=11, Font=Enum.Font.Gotham,
                     TextXAlignment=Enum.TextXAlignment.Left,
@@ -907,10 +892,10 @@ function CrispyLib.CreateWindow(cfg)
                 BackgroundTransparency=1, BorderSizePixel=0,
                 ZIndex=Z.Content, Parent=row,
             })
-            row.MouseEnter:Connect(function() Tween(hbg,{BackgroundTransparency=0.75},TI_FAST) end)
+            row.MouseEnter:Connect(function() Tween(hbg,{BackgroundTransparency=0.9},TI_FAST) end)
             row.MouseLeave:Connect(function() Tween(hbg,{BackgroundTransparency=1},TI_FAST) end)
             Create("Frame",{
-                Size=UDim2.new(1,-24,0,1), Position=UDim2.new(0,12,1,-1),
+                Size=UDim2.new(1,0,0,1), Position=UDim2.new(0,0,1,-1),
                 BackgroundColor3=Theme.Separator, BorderSizePixel=0,
                 ZIndex=Z.Content+1, Parent=row,
             })
@@ -922,7 +907,7 @@ function CrispyLib.CreateWindow(cfg)
             Create("TextLabel",{
                 Name="Name",
                 Size=UDim2.new(0.52,-20,0,18),
-                Position=UDim2.new(0,20,0,hd and 13 or 0),
+                Position=UDim2.new(0,16,0,hd and 13 or 0),
                 AnchorPoint=Vector2.new(0,hd and 0 or 0),
                 BackgroundTransparency=1, Text=name or "",
                 TextColor3=Theme.LabelText, TextSize=13, Font=Enum.Font.GothamSemibold,
@@ -933,7 +918,7 @@ function CrispyLib.CreateWindow(cfg)
             if hd then
                 Create("TextLabel",{
                     Name="Desc",
-                    Size=UDim2.new(0.65,-20,0,14), Position=UDim2.new(0,20,0,32),
+                    Size=UDim2.new(0.65,-20,0,14), Position=UDim2.new(0,16,0,32),
                     BackgroundTransparency=1, Text=desc,
                     TextColor3=Theme.DescText, TextSize=11, Font=Enum.Font.Gotham,
                     TextXAlignment=Enum.TextXAlignment.Left,
@@ -1027,26 +1012,26 @@ function CrispyLib.CreateWindow(cfg)
             end
 
             local dBtn=Create("TextButton",{
-                Size=UDim2.new(0,168,0,30), Position=UDim2.new(1,-186,0.5,-15),
-                BackgroundColor3=Theme.DropdownBg, Text="",
+                Size=UDim2.new(0,160,0,28), Position=UDim2.new(1,-178,0.5,-14),
+                BackgroundColor3=Theme.InputBg, Text="",
                 BorderSizePixel=0, AutoButtonColor=false,
                 ZIndex=Z.Content+3, Parent=row,
             })
-            Round(dBtn,8)
+            Round(dBtn,7)
             local dStroke=Stroke(dBtn,Theme.Border,1)
 
             local dLabel=Create("TextLabel",{
-                Size=UDim2.new(1,-32,1,0), Position=UDim2.new(0,10,0,0),
+                Size=UDim2.new(1,-30,1,0), Position=UDim2.new(0,10,0,0),
                 BackgroundTransparency=1, Text=VT(),
-                TextColor3=Theme.ValueText, TextSize=12, Font=Enum.Font.Gotham,
+                TextColor3=Theme.LabelText, TextSize=12, Font=Enum.Font.Gotham,
                 TextXAlignment=Enum.TextXAlignment.Left,
                 TextTruncate=Enum.TextTruncate.AtEnd,
                 ZIndex=Z.Content+4, Parent=dBtn,
             })
             local chev=Create("TextLabel",{
-                Size=UDim2.new(0,22,1,0), Position=UDim2.new(1,-24,0,0),
-                BackgroundTransparency=1, Text="⌄",
-                TextColor3=Theme.SubtitleText, TextSize=16, Font=Enum.Font.GothamBold,
+                Size=UDim2.new(0,22,1,0), Position=UDim2.new(1,-22,0,0),
+                BackgroundTransparency=1, Text="⇅",
+                TextColor3=Theme.SubtitleText, TextSize=12, Font=Enum.Font.GothamBold,
                 ZIndex=Z.Content+4, Parent=dBtn,
             })
 
@@ -1055,7 +1040,7 @@ function CrispyLib.CreateWindow(cfg)
             local listOpen=false
             local listFrame=Create("Frame",{
                 Name="DropList_"..tostring(self._order),
-                Size=UDim2.new(0,188,0,0),
+                Size=UDim2.new(0,180,0,0),
                 BackgroundColor3=Theme.DropdownBg, BorderSizePixel=0,
                 ZIndex=Z.Popup, ClipsDescendants=true, Visible=false, Parent=sg,
             })
@@ -1153,7 +1138,7 @@ function CrispyLib.CreateWindow(cfg)
                             else
                                 selected=opt
                                 listOpen=false
-                                Tween(listFrame,{Size=UDim2.new(0,188,0,0)},TI_MID)
+                                Tween(listFrame,{Size=UDim2.new(0,180,0,0)},TI_MID)
                                 Tween(chev,{Rotation=0},TI_MID)
                                 Tween(dStroke,{Color=Theme.Border},TI_MID)
                                 task.delay(0.22,function() listFrame.Visible=false end)
@@ -1185,11 +1170,11 @@ function CrispyLib.CreateWindow(cfg)
                 if listOpen then
                     ReposDropdown()
                     listFrame.Visible=true; sIn.Text=""; Rebuild()
-                    Tween(listFrame,{Size=UDim2.new(0,188,0,MAX_H)},TI_MID)
+                    Tween(listFrame,{Size=UDim2.new(0,180,0,MAX_H)},TI_MID)
                     Tween(chev,{Rotation=180},TI_MID)
                     Tween(dStroke,{Color=Theme.FocusBorder},TI_MID)
                 else
-                    Tween(listFrame,{Size=UDim2.new(0,188,0,0)},TI_MID)
+                    Tween(listFrame,{Size=UDim2.new(0,180,0,0)},TI_MID)
                     Tween(chev,{Rotation=0},TI_MID)
                     Tween(dStroke,{Color=Theme.Border},TI_MID)
                     task.delay(0.22,function() listFrame.Visible=false end)
@@ -1208,7 +1193,7 @@ function CrispyLib.CreateWindow(cfg)
                         if mp.X<dBtn.AbsolutePosition.X or mp.X>dBtn.AbsolutePosition.X+dBtn.AbsoluteSize.X
                             or mp.Y<dBtn.AbsolutePosition.Y or mp.Y>dBtn.AbsolutePosition.Y+dBtn.AbsoluteSize.Y then
                             listOpen=false
-                            Tween(listFrame,{Size=UDim2.new(0,188,0,0)},TI_MID)
+                            Tween(listFrame,{Size=UDim2.new(0,180,0,0)},TI_MID)
                             Tween(chev,{Rotation=0},TI_MID)
                             Tween(dStroke,{Color=Theme.Border},TI_MID)
                             task.delay(0.22,function() listFrame.Visible=false end)
@@ -1573,6 +1558,22 @@ function CrispyLib.CreateWindow(cfg)
             end)
             UserInputService.InputEnded:Connect(function(i)
                 if i.UserInputType==Enum.UserInputType.MouseButton1 then dSB=false;dH=false end
+            end)
+
+            -- Close picker when clicking outside
+            UserInputService.InputBegan:Connect(function(inp)
+                if not pOpen then return end
+                if inp.UserInputType~=Enum.UserInputType.MouseButton1 then return end
+                local mp=UserInputService:GetMouseLocation()
+                local fp=pFrame.AbsolutePosition; local fs=pFrame.AbsoluteSize
+                local sp=swatch.AbsolutePosition; local ss=swatch.AbsoluteSize
+                local insidePicker = mp.X>=fp.X and mp.X<=fp.X+fs.X and mp.Y>=fp.Y and mp.Y<=fp.Y+fs.Y
+                local insideSwatch = mp.X>=sp.X and mp.X<=sp.X+ss.X and mp.Y>=sp.Y and mp.Y<=sp.Y+ss.Y
+                if not insidePicker and not insideSwatch then
+                    pOpen=false
+                    Tween(pFrame,{Size=UDim2.new(0,CP_W,0,0)},TI_MID)
+                    task.delay(0.22,function() pFrame.Visible=false end)
+                end
             end)
 
             local function ReposPicker()
