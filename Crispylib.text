@@ -76,8 +76,9 @@ local LocalPlayer      = Players.LocalPlayer
 local Theme = {
     WindowBg      = Color3.fromRGB(26, 26, 28),
     SidebarBg     = Color3.fromRGB(20, 20, 22),
-    ContentBg     = Color3.fromRGB(30, 30, 33),
+    ContentBg     = Color3.fromRGB(22, 22, 24),
     TitleBarBg    = Color3.fromRGB(24, 24, 26),
+    RowBg         = Color3.fromRGB(32, 32, 36),
     RowHover      = Color3.fromRGB(42, 42, 48),
 
     TitleText     = Color3.fromRGB(235, 235, 240),
@@ -99,7 +100,7 @@ local Theme = {
     ToggleKnob    = Color3.fromRGB(255, 255, 255),
 
     Separator     = Color3.fromRGB(44, 44, 50),
-    Border        = Color3.fromRGB(54, 54, 62),
+    Border        = Color3.fromRGB(48, 48, 56),
     FocusBorder   = Color3.fromRGB(10, 132, 255),
 
     DropdownBg    = Color3.fromRGB(28, 28, 32),
@@ -132,7 +133,7 @@ local WIN_W      = 760
 local WIN_H      = 490
 local SIDEBAR_W  = 210
 local TITLEBAR_H = 50
-local ROW_H      = 62
+local ROW_H      = 56
 local NOTIF_MAX  = 5
 
 local Z = {
@@ -1274,7 +1275,7 @@ function CrispyLib.CreateWindow(cfg)
 
         local tabScroll  = ScrollFrame(self._content, Z.Content)
         tabScroll.Visible = false
-        Pad(tabScroll, 0, 16, 0, 0)
+        Pad(tabScroll, 0, 0, 0, 0)
 
         local tabContent = Create("Frame", {
             Name             = "Content_" .. tName,
@@ -1321,7 +1322,9 @@ function CrispyLib.CreateWindow(cfg)
             local row = Create("Frame", {
                 Name             = "Row_" .. tab._order,
                 Size             = UDim2.new(1, 0, 0, h or ROW_H),
-                BackgroundTransparency = 1,
+                BackgroundColor3 = Theme.RowBg,
+                BackgroundTransparency = 0,
+                BorderSizePixel  = 0,
                 LayoutOrder      = tab._order,
                 ZIndex           = Z.Content,
                 Parent           = tab._content,
@@ -1335,7 +1338,7 @@ function CrispyLib.CreateWindow(cfg)
                 Parent           = row,
             })
             row.MouseEnter:Connect(function()
-                Tween(hoverBg, { BackgroundTransparency = 0.9 }, TI_FAST)
+                Tween(hoverBg, { BackgroundTransparency = 0.82 }, TI_FAST)
             end)
             row.MouseLeave:Connect(function()
                 Tween(hoverBg, { BackgroundTransparency = 1 }, TI_FAST)
@@ -1355,9 +1358,9 @@ function CrispyLib.CreateWindow(cfg)
             local hasDesc = desc and desc ~= ""
             local nameLbl = Create("TextLabel", {
                 Name                  = "Name",
-                Size                  = UDim2.new(0.52, -20, 0, 18),
-                Position              = UDim2.new(0, 16, 0, hasDesc and 13 or 0),
-                AnchorPoint           = Vector2.new(0, hasDesc and 0 or 0),
+                Size                  = UDim2.new(0.55, -20, 0, 18),
+                Position              = UDim2.new(0, 16, 0, hasDesc and 10 or 0),
+                AnchorPoint           = Vector2.new(0, hasDesc and 0 or 0.5),
                 BackgroundTransparency = 1,
                 Text                  = name or "",
                 TextColor3            = Theme.LabelText,
@@ -1368,12 +1371,15 @@ function CrispyLib.CreateWindow(cfg)
                 ZIndex                = Z.Content + 2,
                 Parent                = row,
             })
+            if not hasDesc then
+                nameLbl.Position = UDim2.new(0, 16, 0.5, 0)
+            end
             local descLbl
             if hasDesc then
                 descLbl = Create("TextLabel", {
                     Name                  = "Desc",
                     Size                  = UDim2.new(0.65, -20, 0, 14),
-                    Position              = UDim2.new(0, 16, 0, 32),
+                    Position              = UDim2.new(0, 16, 0, 29),
                     BackgroundTransparency = 1,
                     Text                  = desc,
                     TextColor3            = Theme.DescText,
@@ -1395,7 +1401,7 @@ function CrispyLib.CreateWindow(cfg)
             sc = sc or {}
             self._order   = self._order + 1
             local hasDesc = sc.Description and sc.Description ~= ""
-            local h       = hasDesc and 58 or 42
+            local h       = hasDesc and 52 or 36
 
             local frame = Create("Frame", {
                 Name             = "Row_" .. self._order,
@@ -1406,8 +1412,8 @@ function CrispyLib.CreateWindow(cfg)
                 Parent           = self._content,
             })
             Create("TextLabel", {
-                Size                  = UDim2.new(1, -32, 0, 20),
-                Position              = UDim2.new(0, 16, 0, hasDesc and 10 or 11),
+                Size                  = UDim2.new(1, -16, 0, 20),
+                Position              = UDim2.new(0, 4, 0, hasDesc and 6 or 8),
                 BackgroundTransparency = 1,
                 Text                  = sc.Title or "",
                 TextColor3            = Theme.TitleText,
@@ -1419,8 +1425,8 @@ function CrispyLib.CreateWindow(cfg)
             })
             if hasDesc then
                 Create("TextLabel", {
-                    Size                  = UDim2.new(1, -32, 0, 14),
-                    Position              = UDim2.new(0, 16, 0, 30),
+                    Size                  = UDim2.new(1, -16, 0, 14),
+                    Position              = UDim2.new(0, 4, 0, 28),
                     BackgroundTransparency = 1,
                     Text                  = sc.Description,
                     TextColor3            = Theme.DescText,
@@ -1431,14 +1437,6 @@ function CrispyLib.CreateWindow(cfg)
                     Parent                = frame,
                 })
             end
-            Create("Frame", {
-                Size             = UDim2.new(1, -24, 0, 1),
-                Position         = UDim2.new(0, 12, 1, -1),
-                BackgroundColor3 = Theme.Separator,
-                BorderSizePixel  = 0,
-                ZIndex           = Z.Content + 1,
-                Parent           = frame,
-            })
         end
 
         -- ════════════════════════════════════════════════════════════════════
