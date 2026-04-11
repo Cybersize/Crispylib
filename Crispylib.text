@@ -1136,19 +1136,32 @@ function CrispyLib.CreateWindow(cfg)
     Win._order         = 0
     Win._sg            = sg
 
-    -- Search: filter visible rows in the active tab
+    -- Search: filter visible rows in the active tab (searches inside section groups too)
+    local function IterRows(root, fn)
+        for _, child in ipairs(root:GetChildren()) do
+            if child.Name:sub(1, 4) == "Row_" then
+                fn(child)
+            elseif child.Name:sub(1, 4) == "Sec_" then
+                local group = child:FindFirstChild("Group")
+                if group then
+                    for _, row in ipairs(group:GetChildren()) do
+                        if row.Name:sub(1, 4) == "Row_" then fn(row) end
+                    end
+                end
+            end
+        end
+    end
+
     searchBox:GetPropertyChangedSignal("Text"):Connect(function()
         local query = searchBox.Text:lower()
         if not Win._activeTab then return end
-        for _, child in ipairs(Win._activeTab._content:GetChildren()) do
-            if child.Name:sub(1, 4) == "Row_" then
-                local nLbl = child:FindFirstChild("Name")
-                local dLbl = child:FindFirstChild("Desc")
-                child.Visible = query == ""
-                    or (nLbl and nLbl.Text:lower():find(query, 1, true))
-                    or (dLbl and dLbl.Text:lower():find(query, 1, true))
-            end
-        end
+        IterRows(Win._activeTab._content, function(child)
+            local nLbl = child:FindFirstChild("Name")
+            local dLbl = child:FindFirstChild("Desc")
+            child.Visible = query == ""
+                or (nLbl and nLbl.Text:lower():find(query, 1, true))
+                or (dLbl and dLbl.Text:lower():find(query, 1, true))
+        end)
     end)
 
     local function ActivateTab(tab, pushHistory)
@@ -1176,9 +1189,7 @@ function CrispyLib.CreateWindow(cfg)
         tab._scroll.Visible = true
 
         searchBox.Text = ""
-        for _, child in ipairs(tab._content:GetChildren()) do
-            if child.Name:sub(1, 4) == "Row_" then child.Visible = true end
-        end
+        IterRows(tab._content, function(row) row.Visible = true end)
 
         if pushHistory then
             while #_history > _histIdx do table.remove(_history) end
@@ -1284,7 +1295,8 @@ function CrispyLib.CreateWindow(cfg)
             BackgroundTransparency = 1,
             ZIndex           = Z.Content,
             Parent           = tabScroll,
-        }); ListLayout(tabContent, Enum.FillDirection.Vertical, 0)
+        }); ListLayout(tabContent, Enum.FillDirection.Vertical, 8)
+        Pad(tabContent, 8, 16, 12, 12)
 
         local Tab        = {}
         Tab._content     = tabContent
@@ -1292,6 +1304,7 @@ function CrispyLib.CreateWindow(cfg)
         Tab._btn         = tabBtn
         Tab._win         = self
         Tab._order       = 0
+        Tab._currentGroup = nil
 
         tabBtn.MouseEnter:Connect(function()
             if Win._activeTab ~= Tab then
@@ -1319,16 +1332,22 @@ function CrispyLib.CreateWindow(cfg)
 
         local function MkRow(tab, h)
             tab._order = tab._order + 1
+            local inGroup = tab._currentGroup ~= nil
+            local parent  = tab._currentGroup or tab._content
             local row = Create("Frame", {
                 Name             = "Row_" .. tab._order,
                 Size             = UDim2.new(1, 0, 0, h or ROW_H),
                 BackgroundColor3 = Theme.RowBg,
-                BackgroundTransparency = 0,
+                BackgroundTransparency = inGroup and 1 or 0,
                 BorderSizePixel  = 0,
                 LayoutOrder      = tab._order,
                 ZIndex           = Z.Content,
-                Parent           = tab._content,
+                Parent           = parent,
             })
+            if not inGroup then
+                Round(row, 8)
+                Stroke(row, Theme.Border, 1)
+            end
             local hoverBg = Create("Frame", {
                 Size             = UDim2.new(1, 0, 1, 0),
                 BackgroundColor3 = Theme.RowHover,
@@ -1338,19 +1357,21 @@ function CrispyLib.CreateWindow(cfg)
                 Parent           = row,
             })
             row.MouseEnter:Connect(function()
-                Tween(hoverBg, { BackgroundTransparency = 0.82 }, TI_FAST)
+                Tween(hoverBg, { BackgroundTransparency = 0.88 }, TI_FAST)
             end)
             row.MouseLeave:Connect(function()
                 Tween(hoverBg, { BackgroundTransparency = 1 }, TI_FAST)
             end)
-            Create("Frame", {
-                Size             = UDim2.new(1, 0, 0, 1),
-                Position         = UDim2.new(0, 0, 1, -1),
-                BackgroundColor3 = Theme.Separator,
-                BorderSizePixel  = 0,
-                ZIndex           = Z.Content + 1,
-                Parent           = row,
-            })
+            if inGroup then
+                Create("Frame", {
+                    Size             = UDim2.new(1, 0, 0, 1),
+                    Position         = UDim2.new(0, 0, 1, -1),
+                    BackgroundColor3 = Theme.Separator,
+                    BorderSizePixel  = 0,
+                    ZIndex           = Z.Content + 1,
+                    Parent           = row,
+                })
+            end
             return row
         end
 
@@ -1395,25 +1416,39 @@ function CrispyLib.CreateWindow(cfg)
         end
 
         -- ════════════════════════════════════════════════════════════════════
-        --  SECTION HEADER
+        --  SECTION HEADER + GROUP CARD
         -- ════════════════════════════════════════════════════════════════════
         function Tab:AddSection(sc)
             sc = sc or {}
             self._order   = self._order + 1
             local hasDesc = sc.Description and sc.Description ~= ""
-            local h       = hasDesc and 52 or 36
+            local headerH = hasDesc and 46 or 28
 
-            local frame = Create("Frame", {
-                Name             = "Row_" .. self._order,
-                Size             = UDim2.new(1, 0, 0, h),
+            -- Wrapper: header + group container stacked vertically
+            local wrapper = Create("Frame", {
+                Name             = "Sec_" .. self._order,
+                Size             = UDim2.new(1, 0, 0, 0),
+                AutomaticSize    = Enum.AutomaticSize.Y,
                 BackgroundTransparency = 1,
+                BorderSizePixel  = 0,
                 LayoutOrder      = self._order,
                 ZIndex           = Z.Content,
                 Parent           = self._content,
             })
+            ListLayout(wrapper, Enum.FillDirection.Vertical, 4)
+
+            -- Section header (plain text, no card bg)
+            local hFrame = Create("Frame", {
+                Name             = "Header",
+                Size             = UDim2.new(1, 0, 0, headerH),
+                BackgroundTransparency = 1,
+                BorderSizePixel  = 0,
+                ZIndex           = Z.Content,
+                Parent           = wrapper,
+            })
             Create("TextLabel", {
-                Size                  = UDim2.new(1, -16, 0, 20),
-                Position              = UDim2.new(0, 4, 0, hasDesc and 6 or 8),
+                Size                  = UDim2.new(1, 0, 0, 18),
+                Position              = UDim2.new(0, 0, 0, hasDesc and 2 or 5),
                 BackgroundTransparency = 1,
                 Text                  = sc.Title or "",
                 TextColor3            = Theme.TitleText,
@@ -1421,12 +1456,12 @@ function CrispyLib.CreateWindow(cfg)
                 Font                  = Enum.Font.GothamBold,
                 TextXAlignment        = Enum.TextXAlignment.Left,
                 ZIndex                = Z.Content + 1,
-                Parent                = frame,
+                Parent                = hFrame,
             })
             if hasDesc then
                 Create("TextLabel", {
-                    Size                  = UDim2.new(1, -16, 0, 14),
-                    Position              = UDim2.new(0, 4, 0, 28),
+                    Size                  = UDim2.new(1, 0, 0, 14),
+                    Position              = UDim2.new(0, 0, 0, 22),
                     BackgroundTransparency = 1,
                     Text                  = sc.Description,
                     TextColor3            = Theme.DescText,
@@ -1434,9 +1469,26 @@ function CrispyLib.CreateWindow(cfg)
                     Font                  = Enum.Font.Gotham,
                     TextXAlignment        = Enum.TextXAlignment.Left,
                     ZIndex                = Z.Content + 1,
-                    Parent                = frame,
+                    Parent                = hFrame,
                 })
             end
+
+            -- Group card: rows go inside this
+            local groupContainer = Create("Frame", {
+                Name             = "Group",
+                Size             = UDim2.new(1, 0, 0, 0),
+                AutomaticSize    = Enum.AutomaticSize.Y,
+                BackgroundColor3 = Theme.RowBg,
+                BorderSizePixel  = 0,
+                ClipsDescendants = true,
+                ZIndex           = Z.Content,
+                Parent           = wrapper,
+            })
+            Round(groupContainer, 8)
+            Stroke(groupContainer, Theme.Border, 1)
+            ListLayout(groupContainer, Enum.FillDirection.Vertical, 0)
+
+            self._currentGroup = groupContainer
         end
 
         -- ════════════════════════════════════════════════════════════════════
@@ -1664,6 +1716,7 @@ function CrispyLib.CreateWindow(cfg)
                 BorderSizePixel      = 0,
                 CanvasSize           = UDim2.new(0, 0, 0, 0),
                 AutomaticCanvasSize  = Enum.AutomaticSize.Y,
+                ClipsDescendants     = true,
                 ZIndex               = Z.Popup + 1,
                 Parent               = listFrame,
             })
@@ -1870,7 +1923,7 @@ function CrispyLib.CreateWindow(cfg)
                     Position         = UDim2.new(0, 0, 1, -38),
                     BackgroundColor3 = Theme.DropdownBg,
                     BorderSizePixel  = 0,
-                    ZIndex           = Z.Popup + 1,
+                    ZIndex           = Z.Popup + 2,
                     Parent           = listFrame,
                 })
                 Create("Frame", {
@@ -1878,11 +1931,11 @@ function CrispyLib.CreateWindow(cfg)
                     Position         = UDim2.new(0, 8, 0, 0),
                     BackgroundColor3 = Theme.Separator,
                     BorderSizePixel  = 0,
-                    ZIndex           = Z.Popup + 2,
+                    ZIndex           = Z.Popup + 3,
                     Parent           = doneBar,
                 })
                 local clearBtn = Create("TextButton", {
-                    Size             = UDim2.new(0, 50, 0, 26),
+                    Size             = UDim2.new(0, 54, 0, 26),
                     Position         = UDim2.new(0, 8, 0.5, -13),
                     BackgroundColor3 = Theme.InputBg,
                     Text             = "Clear",
@@ -1891,10 +1944,10 @@ function CrispyLib.CreateWindow(cfg)
                     Font             = Enum.Font.GothamSemibold,
                     BorderSizePixel  = 0,
                     AutoButtonColor  = false,
-                    ZIndex           = Z.Popup + 2,
+                    ZIndex           = Z.Popup + 3,
                     Parent           = doneBar,
                 }); Round(clearBtn, 5); Stroke(clearBtn, Theme.Border, 1)
-                clearBtn.MouseButton1Click:Connect(function()
+                clearBtn.MouseButton1Down:Connect(function()
                     selected        = {}
                     dLabel.Text     = ValueText()
                     State.Set(dc.Flag, selected)
@@ -1902,8 +1955,8 @@ function CrispyLib.CreateWindow(cfg)
                     Rebuild(searchIn.Text)
                 end)
                 local doneBtn = Create("TextButton", {
-                    Size             = UDim2.new(1, -70, 0, 26),
-                    Position         = UDim2.new(0, 64, 0.5, -13),
+                    Size             = UDim2.new(1, -74, 0, 26),
+                    Position         = UDim2.new(0, 68, 0.5, -13),
                     BackgroundColor3 = Theme.Accent,
                     Text             = "Done",
                     TextColor3       = Color3.fromRGB(255, 255, 255),
@@ -1911,7 +1964,7 @@ function CrispyLib.CreateWindow(cfg)
                     Font             = Enum.Font.GothamSemibold,
                     BorderSizePixel  = 0,
                     AutoButtonColor  = false,
-                    ZIndex           = Z.Popup + 2,
+                    ZIndex           = Z.Popup + 3,
                     Parent           = doneBar,
                 }); Round(doneBtn, 5)
                 doneBtn.MouseEnter:Connect(function()  Tween(doneBtn, { BackgroundColor3 = Theme.AccentHover }, TI_FAST) end)
@@ -2241,8 +2294,8 @@ function CrispyLib.CreateWindow(cfg)
             local nameLbl, descLbl = RowLabels(row, bc.Name, bc.Description)
 
             local btn = Create("TextButton", {
-                Size             = UDim2.new(0, 106, 0, 30),
-                Position         = UDim2.new(1, -124, 0.5, -15),
+                Size             = UDim2.new(0, 88, 0, 28),
+                Position         = UDim2.new(1, -104, 0.5, -14),
                 BackgroundColor3 = Theme.Accent,
                 Text             = bc.Label or "Run",
                 TextColor3       = Theme.TabActiveText,
@@ -2315,8 +2368,8 @@ function CrispyLib.CreateWindow(cfg)
             local nameLbl, descLbl = RowLabels(row, kc.Name, kc.Description)
 
             local kbBg = Create("Frame", {
-                Size             = UDim2.new(0, 106, 0, 30),
-                Position         = UDim2.new(1, -124, 0.5, -15),
+                Size             = UDim2.new(0, 100, 0, 28),
+                Position         = UDim2.new(1, -118, 0.5, -14),
                 BackgroundColor3 = Theme.InputBg,
                 BorderSizePixel  = 0,
                 ZIndex           = Z.Content + 3,
@@ -2397,94 +2450,313 @@ function CrispyLib.CreateWindow(cfg)
             local row    = MkRow(self)
             local nameLbl, descLbl = RowLabels(row, cpc.Name, cpc.Description)
 
+            -- ── Color helpers ────────────────────────────────────────────────
+            local function HSVtoRGB(h, s, v)
+                h = h % 360
+                local c = v * s
+                local x = c * (1 - math.abs((h / 60) % 2 - 1))
+                local m = v - c
+                local r, g, b
+                if     h < 60  then r, g, b = c, x, 0
+                elseif h < 120 then r, g, b = x, c, 0
+                elseif h < 180 then r, g, b = 0, c, x
+                elseif h < 240 then r, g, b = 0, x, c
+                elseif h < 300 then r, g, b = x, 0, c
+                else              r, g, b = c, 0, x end
+                return Color3.new(r + m, g + m, b + m)
+            end
+            local function RGBtoHSV(c3)
+                local r, g, b = c3.R, c3.G, c3.B
+                local mx = math.max(r, g, b); local mn = math.min(r, g, b)
+                local d = mx - mn; local v = mx
+                local s = mx == 0 and 0 or d / mx; local h = 0
+                if d ~= 0 then
+                    if     mx == r then h = ((g - b) / d) % 6
+                    elseif mx == g then h = (b - r) / d + 2
+                    else              h = (r - g) / d + 4 end
+                    h = h * 60
+                end
+                if h < 0 then h = h + 360 end
+                return h, s, v
+            end
+            local function ToHex(c)
+                return string.format("#%02X%02X%02X",
+                    math.floor(c.R*255+0.5), math.floor(c.G*255+0.5), math.floor(c.B*255+0.5))
+            end
+            local function FromHex(h)
+                h = h:gsub("#", "")
+                if #h ~= 6 then return nil end
+                local r,g,b = tonumber(h:sub(1,2),16), tonumber(h:sub(3,4),16), tonumber(h:sub(5,6),16)
+                if r and g and b then return Color3.fromRGB(r,g,b) end
+            end
+
+            local hue, sat, valu = RGBtoHSV(val)
+            local pickerFrame; local pickerOpen = false
+
+            -- Row: color swatch (clickable) + hex label
             local swatch = Create("Frame", {
-                Size             = UDim2.new(0, 32, 0, 22),
-                Position         = UDim2.new(1, -148, 0.5, -11),
+                Size             = UDim2.new(0, 44, 0, 24),
+                Position         = UDim2.new(1, -60, 0.5, -12),
                 BackgroundColor3 = val,
                 BorderSizePixel  = 0,
                 ZIndex           = Z.Content + 3,
                 Parent           = row,
-            }); Round(swatch, 5); Stroke(swatch, Theme.Border, 1)
-
-            local hexBg = Create("Frame", {
-                Size             = UDim2.new(0, 96, 0, 30),
-                Position         = UDim2.new(1, -116, 0.5, -15),
-                BackgroundColor3 = Theme.InputBg,
-                BorderSizePixel  = 0,
-                ZIndex           = Z.Content + 3,
-                Parent           = row,
-            }); Round(hexBg, 8)
-            local hexStroke = Stroke(hexBg, Theme.Border, 1)
-
-            local function Color3ToHex(c)
-                return string.format("#%02X%02X%02X",
-                    math.floor(c.R * 255 + 0.5),
-                    math.floor(c.G * 255 + 0.5),
-                    math.floor(c.B * 255 + 0.5))
-            end
-            local function HexToColor3(h)
-                h = h:gsub("#", "")
-                if #h ~= 6 then return nil end
-                local r = tonumber(h:sub(1,2), 16)
-                local g = tonumber(h:sub(3,4), 16)
-                local b = tonumber(h:sub(5,6), 16)
-                if r and g and b then return Color3.fromRGB(r, g, b) end
-                return nil
-            end
-
-            local hexBox = Create("TextBox", {
-                Size                  = UDim2.new(1, -10, 1, 0),
-                Position              = UDim2.new(0, 8, 0, 0),
-                BackgroundTransparency = 1,
-                Text                  = Color3ToHex(val),
-                TextColor3            = Theme.LabelText,
-                TextSize              = 12,
-                Font                  = Enum.Font.Gotham,
-                TextXAlignment        = Enum.TextXAlignment.Left,
-                ClearTextOnFocus      = false,
-                ZIndex                = Z.Content + 4,
-                Parent                = hexBg,
+            }); Round(swatch, 6); Stroke(swatch, Theme.Border, 1)
+            local swatchBtn = Create("TextButton", {
+                Size = UDim2.new(1,0,1,0), BackgroundTransparency=1, Text="",
+                ZIndex = Z.Content + 4, Parent = swatch,
             })
-            hexBox.Focused:Connect(function()  Tween(hexStroke, { Color = Theme.FocusBorder, Thickness = 1.5 }, TI_FAST) end)
-            hexBox.FocusLost:Connect(function()
-                Tween(hexStroke, { Color = Theme.Border, Thickness = 1 }, TI_FAST)
-                local c = HexToColor3(hexBox.Text)
-                if c then
-                    val            = c
-                    swatch.BackgroundColor3 = val
-                    hexBox.Text    = Color3ToHex(val)
-                    State.Set(cpc.Flag, val)
-                    SafeCall(cb, val)
-                else
-                    hexBox.Text = Color3ToHex(val)
+            local hexLabel = Create("TextLabel", {
+                Size                  = UDim2.new(0, 66, 0, 24),
+                Position              = UDim2.new(1, -136, 0.5, -12),
+                BackgroundTransparency = 1,
+                Text                  = ToHex(val),
+                TextColor3            = Theme.ValueText,
+                TextSize              = 11,
+                Font                  = Enum.Font.GothamSemibold,
+                TextXAlignment        = Enum.TextXAlignment.Right,
+                ZIndex                = Z.Content + 3,
+                Parent                = row,
+            })
+
+            -- ── Floating HSV picker window ───────────────────────────────────
+            local function OpenPicker()
+                if pickerOpen then
+                    if pickerFrame and pickerFrame.Parent then pickerFrame:Destroy() end
+                    pickerOpen = false; return
                 end
-            end)
+                pickerOpen = true
+                local PW, PH = 264, 312
+                local abp = swatch.AbsolutePosition
+                local vp  = workspace.CurrentCamera.ViewportSize
+                local px  = math.clamp(abp.X - PW - 10, 0, vp.X - PW)
+                local py  = math.clamp(abp.Y - 60, 0, vp.Y - PH)
+
+                pickerFrame = Create("Frame", {
+                    Name="ColorPicker", Size=UDim2.new(0,PW,0,PH),
+                    Position=UDim2.new(0,px,0,py),
+                    BackgroundColor3=Theme.DropdownBg, BorderSizePixel=0,
+                    ZIndex=Z.Popup, Parent=sg,
+                }); Round(pickerFrame, 10); Stroke(pickerFrame, Theme.Border, 1)
+
+                local titleBar = Create("Frame", {
+                    Size=UDim2.new(1,0,0,38), BackgroundColor3=Theme.TitleBarBg,
+                    BorderSizePixel=0, ZIndex=Z.Popup, Parent=pickerFrame,
+                })
+                Create("UICorner", { CornerRadius=UDim.new(0,10), Parent=titleBar })
+                Create("Frame", { Size=UDim2.new(1,0,0.5,0), Position=UDim2.new(0,0,0.5,0),
+                    BackgroundColor3=Theme.TitleBarBg, BorderSizePixel=0, ZIndex=Z.Popup, Parent=titleBar })
+                Create("Frame", { Size=UDim2.new(1,0,0,1), Position=UDim2.new(0,0,1,-1),
+                    BackgroundColor3=Theme.Separator, BorderSizePixel=0, ZIndex=Z.Popup+1, Parent=titleBar })
+                Create("TextLabel", {
+                    Size=UDim2.new(1,-44,1,0), Position=UDim2.new(0,14,0,0),
+                    BackgroundTransparency=1, Text="Pick Color", TextColor3=Theme.TitleText,
+                    TextSize=13, Font=Enum.Font.GothamBold, TextXAlignment=Enum.TextXAlignment.Left,
+                    ZIndex=Z.Popup+1, Parent=titleBar,
+                })
+                local closeP = Create("TextButton", {
+                    Size=UDim2.new(0,28,0,28), Position=UDim2.new(1,-34,0.5,-14),
+                    BackgroundTransparency=1, Text="✕", TextColor3=Theme.SubtitleText,
+                    TextSize=11, Font=Enum.Font.GothamBold, BorderSizePixel=0,
+                    ZIndex=Z.Popup+2, Parent=titleBar,
+                })
+                Draggable(titleBar, pickerFrame)
+
+                local M=14; local SW=PW-M*2; local SVH=126
+
+                -- SV 2D picker
+                local svFrame = Create("Frame", {
+                    Size=UDim2.new(0,SW,0,SVH), Position=UDim2.new(0,M,0,46),
+                    BackgroundColor3=HSVtoRGB(hue,1,1), BorderSizePixel=0,
+                    ClipsDescendants=true, ZIndex=Z.Popup+1, Parent=pickerFrame,
+                }); Round(svFrame, 6)
+                local whiteL = Create("Frame", {
+                    Size=UDim2.new(1,0,1,0), BackgroundColor3=Color3.new(1,1,1),
+                    BorderSizePixel=0, ZIndex=Z.Popup+2, Parent=svFrame,
+                })
+                Create("UIGradient", {
+                    Color=ColorSequence.new(Color3.new(1,1,1)),
+                    Transparency=NumberSequence.new({
+                        NumberSequenceKeypoint.new(0,0), NumberSequenceKeypoint.new(1,1),
+                    }), Parent=whiteL,
+                })
+                local blackL = Create("Frame", {
+                    Size=UDim2.new(1,0,1,0), BackgroundColor3=Color3.new(0,0,0),
+                    BorderSizePixel=0, ZIndex=Z.Popup+3, Parent=svFrame,
+                })
+                Create("UIGradient", {
+                    Color=ColorSequence.new(Color3.new(0,0,0)),
+                    Transparency=NumberSequence.new({
+                        NumberSequenceKeypoint.new(0,1), NumberSequenceKeypoint.new(1,0),
+                    }), Rotation=90, Parent=blackL,
+                })
+                local svKnob = Create("Frame", {
+                    Size=UDim2.new(0,12,0,12), AnchorPoint=Vector2.new(0.5,0.5),
+                    Position=UDim2.new(sat,0,1-valu,0), BackgroundColor3=Color3.new(1,1,1),
+                    BorderSizePixel=0, ZIndex=Z.Popup+4, Parent=svFrame,
+                }); Round(svKnob,6); Create("UIStroke",{Color=Color3.new(0,0,0),Thickness=1.5,Parent=svKnob})
+                local svInput = Create("TextButton", {
+                    Size=UDim2.new(1,0,1,0), BackgroundTransparency=1, Text="",
+                    ZIndex=Z.Popup+5, Parent=svFrame,
+                })
+
+                -- Hue slider
+                local hueY = 46 + SVH + 10
+                local hueBar = Create("Frame", {
+                    Size=UDim2.new(0,SW,0,12), Position=UDim2.new(0,M,0,hueY),
+                    BorderSizePixel=0, ZIndex=Z.Popup+1, Parent=pickerFrame,
+                }); Round(hueBar,6)
+                Create("UIGradient", { Color=ColorSequence.new({
+                    ColorSequenceKeypoint.new(0/6, Color3.fromRGB(255,0,0)),
+                    ColorSequenceKeypoint.new(1/6, Color3.fromRGB(255,255,0)),
+                    ColorSequenceKeypoint.new(2/6, Color3.fromRGB(0,255,0)),
+                    ColorSequenceKeypoint.new(3/6, Color3.fromRGB(0,255,255)),
+                    ColorSequenceKeypoint.new(4/6, Color3.fromRGB(0,0,255)),
+                    ColorSequenceKeypoint.new(5/6, Color3.fromRGB(255,0,255)),
+                    ColorSequenceKeypoint.new(1,   Color3.fromRGB(255,0,0)),
+                }), Parent=hueBar })
+                local hueKnob = Create("Frame", {
+                    Size=UDim2.new(0,12,0,12), AnchorPoint=Vector2.new(0.5,0.5),
+                    Position=UDim2.new(hue/360,0,0.5,0), BackgroundColor3=Color3.new(1,1,1),
+                    BorderSizePixel=0, ZIndex=Z.Popup+2, Parent=hueBar,
+                }); Round(hueKnob,6); Create("UIStroke",{Color=Color3.new(0,0,0),Thickness=1.5,Parent=hueKnob})
+                local hueInput = Create("TextButton", {
+                    Size=UDim2.new(1,0,1,0), BackgroundTransparency=1, Text="",
+                    ZIndex=Z.Popup+3, Parent=hueBar,
+                })
+
+                -- Preview + hex input
+                local previewY = hueY + 12 + 12
+                local preview = Create("Frame", {
+                    Size=UDim2.new(0,40,0,28), Position=UDim2.new(0,M,0,previewY),
+                    BackgroundColor3=val, BorderSizePixel=0, ZIndex=Z.Popup+1, Parent=pickerFrame,
+                }); Round(preview,6); Stroke(preview,Theme.Border,1)
+                local hexBgP = Create("Frame", {
+                    Size=UDim2.new(0,SW-52,0,28), Position=UDim2.new(0,M+48,0,previewY),
+                    BackgroundColor3=Theme.InputBg, BorderSizePixel=0, ZIndex=Z.Popup+1, Parent=pickerFrame,
+                }); Round(hexBgP,6)
+                local hexBgStroke = Stroke(hexBgP, Theme.Border, 1)
+                local hexIn = Create("TextBox", {
+                    Size=UDim2.new(1,-12,1,0), Position=UDim2.new(0,8,0,0),
+                    BackgroundTransparency=1, Text=ToHex(val), TextColor3=Theme.LabelText,
+                    TextSize=12, Font=Enum.Font.Gotham, TextXAlignment=Enum.TextXAlignment.Left,
+                    ClearTextOnFocus=false, ZIndex=Z.Popup+2, Parent=hexBgP,
+                })
+
+                -- Apply / Cancel buttons
+                local btnY = previewY + 36
+                local halfW = math.floor((SW-6)/2)
+                local cancelBtn = Create("TextButton", {
+                    Size=UDim2.new(0,halfW,0,28), Position=UDim2.new(0,M,0,btnY),
+                    BackgroundColor3=Theme.InputBg, Text="Cancel", TextColor3=Theme.LabelText,
+                    TextSize=12, Font=Enum.Font.GothamSemibold, BorderSizePixel=0,
+                    AutoButtonColor=false, ZIndex=Z.Popup+2, Parent=pickerFrame,
+                }); Round(cancelBtn,7); Stroke(cancelBtn,Theme.Border,1)
+                local applyBtn = Create("TextButton", {
+                    Size=UDim2.new(0,halfW,0,28), Position=UDim2.new(0,M+halfW+6,0,btnY),
+                    BackgroundColor3=Theme.Accent, Text="Apply", TextColor3=Color3.new(1,1,1),
+                    TextSize=12, Font=Enum.Font.GothamSemibold, BorderSizePixel=0,
+                    AutoButtonColor=false, ZIndex=Z.Popup+2, Parent=pickerFrame,
+                }); Round(applyBtn,7)
+
+                -- Live update
+                local tempVal = val
+                local function UpdateAll()
+                    tempVal = HSVtoRGB(hue,sat,valu)
+                    svFrame.BackgroundColor3 = HSVtoRGB(hue,1,1)
+                    svKnob.Position  = UDim2.new(sat,0,1-valu,0)
+                    hueKnob.Position = UDim2.new(hue/360,0,0.5,0)
+                    preview.BackgroundColor3 = tempVal
+                    hexIn.Text = ToHex(tempVal)
+                end
+
+                local svDrag=false
+                svInput.InputBegan:Connect(function(i)
+                    if i.UserInputType==Enum.UserInputType.MouseButton1 then
+                        svDrag=true
+                        local ab=svFrame.AbsolutePosition; local sz=svFrame.AbsoluteSize
+                        sat=math.clamp((i.Position.X-ab.X)/sz.X,0,1)
+                        valu=math.clamp(1-(i.Position.Y-ab.Y)/sz.Y,0,1); UpdateAll()
+                    end
+                end)
+                local svMC=UserInputService.InputChanged:Connect(function(i)
+                    if svDrag and i.UserInputType==Enum.UserInputType.MouseMovement then
+                        local ab=svFrame.AbsolutePosition; local sz=svFrame.AbsoluteSize
+                        sat=math.clamp((i.Position.X-ab.X)/sz.X,0,1)
+                        valu=math.clamp(1-(i.Position.Y-ab.Y)/sz.Y,0,1); UpdateAll()
+                    end
+                end)
+                local svEC=UserInputService.InputEnded:Connect(function(i)
+                    if i.UserInputType==Enum.UserInputType.MouseButton1 then svDrag=false end
+                end)
+
+                local hueDrag=false
+                hueInput.InputBegan:Connect(function(i)
+                    if i.UserInputType==Enum.UserInputType.MouseButton1 then
+                        hueDrag=true
+                        local ab=hueBar.AbsolutePosition; local sz=hueBar.AbsoluteSize
+                        hue=math.clamp((i.Position.X-ab.X)/sz.X,0,1)*360; UpdateAll()
+                    end
+                end)
+                local hueMC=UserInputService.InputChanged:Connect(function(i)
+                    if hueDrag and i.UserInputType==Enum.UserInputType.MouseMovement then
+                        local ab=hueBar.AbsolutePosition; local sz=hueBar.AbsoluteSize
+                        hue=math.clamp((i.Position.X-ab.X)/sz.X,0,1)*360; UpdateAll()
+                    end
+                end)
+                local hueEC=UserInputService.InputEnded:Connect(function(i)
+                    if i.UserInputType==Enum.UserInputType.MouseButton1 then hueDrag=false end
+                end)
+
+                hexIn.Focused:Connect(function() Tween(hexBgStroke,{Color=Theme.FocusBorder},TI_FAST) end)
+                hexIn.FocusLost:Connect(function()
+                    Tween(hexBgStroke,{Color=Theme.Border},TI_FAST)
+                    local c=FromHex(hexIn.Text)
+                    if c then hue,sat,valu=RGBtoHSV(c); UpdateAll()
+                    else hexIn.Text=ToHex(tempVal) end
+                end)
+
+                cancelBtn.MouseEnter:Connect(function() Tween(cancelBtn,{BackgroundColor3=Theme.ItemHover},TI_FAST) end)
+                cancelBtn.MouseLeave:Connect(function() Tween(cancelBtn,{BackgroundColor3=Theme.InputBg},TI_FAST) end)
+                applyBtn.MouseEnter:Connect(function() Tween(applyBtn,{BackgroundColor3=Theme.AccentHover},TI_FAST) end)
+                applyBtn.MouseLeave:Connect(function() Tween(applyBtn,{BackgroundColor3=Theme.Accent},TI_FAST) end)
+
+                local function ClosePicker(apply)
+                    svMC:Disconnect(); svEC:Disconnect(); hueMC:Disconnect(); hueEC:Disconnect()
+                    pickerOpen=false
+                    if apply then
+                        val=tempVal; swatch.BackgroundColor3=val
+                        hexLabel.Text=ToHex(val); State.Set(cpc.Flag,val); SafeCall(cb,val)
+                    else
+                        hue,sat,valu=RGBtoHSV(val)
+                    end
+                    pcall(function() pickerFrame:Destroy() end)
+                end
+
+                closeP.MouseButton1Click:Connect(function() ClosePicker(false) end)
+                cancelBtn.MouseButton1Click:Connect(function() ClosePicker(false) end)
+                applyBtn.MouseButton1Click:Connect(function() ClosePicker(true) end)
+            end
+
+            swatchBtn.MouseButton1Click:Connect(function() OpenPicker() end)
 
             local obj = {}
             function obj:Set(v, silent)
                 if typeof(v) ~= "Color3" then return end
-                val                     = v
-                swatch.BackgroundColor3 = val
-                hexBox.Text             = Color3ToHex(val)
-                State.Set(cpc.Flag, val)
-                if not silent then SafeCall(cb, val) end
+                val=v; hue,sat,valu=RGBtoHSV(val)
+                swatch.BackgroundColor3=val; hexLabel.Text=ToHex(val)
+                State.Set(cpc.Flag,val)
+                if not silent then SafeCall(cb,val) end
             end
             function obj:Get() return val end
-            function obj:Enable()
-                hexBox.TextEditable = true
-                Tween(hexBg, { BackgroundColor3 = Theme.InputBg }, TI_FAST)
-            end
-            function obj:Disable()
-                hexBox.TextEditable = false
-                Tween(hexBg, { BackgroundColor3 = Theme.DisabledBg }, TI_FAST)
-            end
+            function obj:Enable()  swatchBtn.Active=true end
+            function obj:Disable() swatchBtn.Active=false end
             ApplyMixin(obj, row, nameLbl, descLbl)
-
             Registry.Register(cpc.Flag,
                 function() return val end,
-                function(v) obj:Set(v, true) end
+                function(v) obj:Set(v,true) end
             )
-            if cpc.Flag then State.Set(cpc.Flag, val) end
+            if cpc.Flag then State.Set(cpc.Flag,val) end
             return obj
         end
 
