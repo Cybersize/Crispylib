@@ -1208,10 +1208,12 @@ function CrispyLib.Debug.Panel(tab)
         local snap = CrispyLib.Config.Snapshot()
         for flag, val in pairs(snap) do
             if not flagRows[flag] then
-                local lbl = tab:AddRichText and tab:AddRichText({
-                    Text = "<b>" .. flag .. "</b>: " .. tostring(val),
-                    RichText = true,
-                }) or tab:AddLabel({ Name = flag, Value = tostring(val) })
+                local lbl
+                if type(tab.AddRichText) == "function" then
+                    lbl = tab:AddRichText({ Text = "<b>" .. flag .. "</b>: " .. tostring(val), RichText = true })
+                else
+                    lbl = tab:AddRichText({ Text = flag .. ": " .. tostring(val), RichText = false })
+                end
                 flagRows[flag] = lbl
             else
                 if flagRows[flag].Set then
@@ -1226,10 +1228,10 @@ function CrispyLib.Debug.Panel(tab)
         Callback = RefreshFlags,
     })
 
-    tab:AddDivider and tab:AddDivider({ Label = "Error Log" })
+    if type(tab.AddDivider) == "function" then tab:AddDivider({ Label = "Error Log" }) end
     tab:AddSection({ Title = "Error Log" })
 
-    local logLabel = tab:AddRichText and tab:AddRichText({
+    local logLabel = (type(tab.AddRichText) == "function") and tab:AddRichText({
         Text     = "No errors logged.",
         RichText = false,
     })
