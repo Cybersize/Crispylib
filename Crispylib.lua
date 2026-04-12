@@ -1183,8 +1183,7 @@ function CrispyLib.Debug.Export()
         local e = CrispyLib.Debug._log[i]
         lines[#lines + 1] = "[" .. e.time .. "] [" .. e.level .. "] " .. e.msg
     end
-    local out = table.concat(lines, "
-")
+    local out = table.concat(lines, "\n")
     if _hasWrite then
         pcall(writefile, "CrispyLib/debug_log.txt", out)
     end
