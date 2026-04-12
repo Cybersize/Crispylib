@@ -215,15 +215,18 @@ end
 
 -- Clamp-aware draggable that keeps the frame within the viewport
 local function Draggable(handle, frame)
-    local dragging, dragStart, startPos
+    local dragging  = false
+    local winOffset = Vector2.new(0, 0)
     local connections = {}
 
     connections[#connections+1] = handle.InputBegan:Connect(function(i)
         if i.UserInputType == Enum.UserInputType.MouseButton1 then
+            local ap   = frame.AbsolutePosition
+            local mpos = UserInputService:GetMouseLocation()
             dragging  = true
-            dragStart = i.Position
-            -- Use AbsolutePosition so window with Scale-based position doesn't snap
-            startPos  = frame.AbsolutePosition
+            -- Store fixed offset: window top-left minus mouse position at click time.
+            -- Using GetMouseLocation() keeps both sides in the same coordinate system.
+            winOffset = Vector2.new(ap.X - mpos.X, ap.Y - mpos.Y)
         end
     end)
 
@@ -231,13 +234,13 @@ local function Draggable(handle, frame)
         if not dragging then return end
         if i.UserInputType ~= Enum.UserInputType.MouseMovement then return end
 
-        local delta = i.Position - dragStart
-        local vp    = workspace.CurrentCamera.ViewportSize
-        local fw    = frame.AbsoluteSize.X
-        local fh    = frame.AbsoluteSize.Y
+        local mpos = UserInputService:GetMouseLocation()
+        local vp   = workspace.CurrentCamera.ViewportSize
+        local fw   = frame.AbsoluteSize.X
+        local fh   = frame.AbsoluteSize.Y
 
-        local newX = math.clamp(startPos.X + delta.X, 0, vp.X - fw)
-        local newY = math.clamp(startPos.Y + delta.Y, 0, vp.Y - fh)
+        local newX = math.clamp(mpos.X + winOffset.X, 0, vp.X - fw)
+        local newY = math.clamp(mpos.Y + winOffset.Y, 0, vp.Y - fh)
 
         frame.Position = UDim2.new(0, newX, 0, newY)
     end)
@@ -1062,6 +1065,23 @@ function CrispyLib.CreateWindow(cfg)
         ZIndex           = Z.Sidebar,
         Parent           = window,
     })
+    -- Anti-corner caps: UICorner rounds all 4 corners; we square off 3,
+    -- leaving only bottom-left rounded to match the window's corner.
+    Create("UICorner", { CornerRadius = UDim.new(0, 12), Parent = sidebar })
+    local function SidebarCap(pos)
+        Create("Frame", {
+            Size             = UDim2.new(0, 12, 0, 12),
+            Position         = pos,
+            BackgroundColor3 = Theme.SidebarBg,
+            BorderSizePixel  = 0,
+            ZIndex           = Z.Sidebar + 2,
+            Parent           = sidebar,
+        })
+    end
+    SidebarCap(UDim2.new(0, 0,  0, 0))     -- top-left  (square off)
+    SidebarCap(UDim2.new(1, -12, 0, 0))    -- top-right (square off)
+    SidebarCap(UDim2.new(1, -12, 1, -12))  -- bottom-right (square off)
+    -- bottom-left is left rounded to blend with the window corner
     Create("Frame", {
         Size             = UDim2.new(0, 1, 1, 0),
         Position         = UDim2.new(1, -1, 0, 0),
@@ -1090,6 +1110,23 @@ function CrispyLib.CreateWindow(cfg)
         ZIndex           = Z.Content,
         Parent           = window,
     })
+    -- Anti-corner caps: UICorner rounds all 4 corners; we square off 3,
+    -- leaving only bottom-right rounded to match the window's corner.
+    Create("UICorner", { CornerRadius = UDim.new(0, 12), Parent = content })
+    local function ContentCap(pos)
+        Create("Frame", {
+            Size             = UDim2.new(0, 12, 0, 12),
+            Position         = pos,
+            BackgroundColor3 = Theme.ContentBg,
+            BorderSizePixel  = 0,
+            ZIndex           = Z.Content + 2,
+            Parent           = content,
+        })
+    end
+    ContentCap(UDim2.new(0, 0,   0, 0))    -- top-left  (square off)
+    ContentCap(UDim2.new(1, -12, 0, 0))    -- top-right (square off)
+    ContentCap(UDim2.new(0, 0,   1, -12))  -- bottom-left (square off)
+    -- bottom-right is left rounded to blend with the window corner
 
     Draggable(titleBar, window)
 
