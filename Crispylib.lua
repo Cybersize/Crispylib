@@ -1241,8 +1241,7 @@ function CrispyLib.Debug.Panel(tab)
             local e = CrispyLib.Debug._log[i]
             lines[#lines + 1] = "[" .. e.time .. "] [" .. e.level .. "] " .. e.msg
         end
-        local txt = #lines > 0 and table.concat(lines, "
-") or "No logs yet."
+        local txt = #lines > 0 and table.concat(lines, "\n") or "No logs yet."
         logLabel:Set(txt)
     end
 
@@ -2136,7 +2135,7 @@ end
 function CrispyLib.CreateWindow(cfg)
     cfg          = cfg or {}
     local title      = cfg.Title      or "Crispy Hub"
-    local subtitle   = cfg.Subtitle   or ""
+    local subtitle   = cfg.Subtitle or cfg.SubTitle or ""
     local configName = cfg.ConfigName
     local autoLoad   = cfg.AutoLoad   or false
 
@@ -2936,7 +2935,7 @@ function CrispyLib.CreateWindow(cfg)
     -- ════════════════════════════════════════════════════════════════════════
     function Win:AddTab(tabCfg)
         tabCfg       = tabCfg or {}
-        local tName  = tabCfg.Name or "Tab"
+        local tName  = tabCfg.Name or tabCfg.Title or "Tab"
         local tIcon  = tabCfg.Icon or ""
         self._order  = self._order + 1
 
