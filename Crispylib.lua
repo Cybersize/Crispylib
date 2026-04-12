@@ -222,7 +222,8 @@ local function Draggable(handle, frame)
         if i.UserInputType == Enum.UserInputType.MouseButton1 then
             dragging  = true
             dragStart = i.Position
-            startPos  = frame.Position
+            -- Use AbsolutePosition so window with Scale-based position doesn't snap
+            startPos  = frame.AbsolutePosition
         end
     end)
 
@@ -235,8 +236,8 @@ local function Draggable(handle, frame)
         local fw    = frame.AbsoluteSize.X
         local fh    = frame.AbsoluteSize.Y
 
-        local newX = math.clamp(startPos.X.Offset + delta.X, 0, vp.X - fw)
-        local newY = math.clamp(startPos.Y.Offset + delta.Y, 0, vp.Y - fh)
+        local newX = math.clamp(startPos.X + delta.X, 0, vp.X - fw)
+        local newY = math.clamp(startPos.Y + delta.Y, 0, vp.Y - fh)
 
         frame.Position = UDim2.new(0, newX, 0, newY)
     end)
@@ -882,6 +883,7 @@ function CrispyLib.CreateWindow(cfg)
         Position         = UDim2.new(0.5, -WIN_W / 2, 0.5, -WIN_H / 2),
         BackgroundColor3 = Theme.WindowBg,
         BorderSizePixel  = 0,
+        ClipsDescendants = true,
         ZIndex           = Z.Window,
         Parent           = sg,
     })
