@@ -9,12 +9,53 @@
     local Loader = CrispyLib.CreateLoadingScreen({ Title = "Crispy Hub", Subtitle = "Loading..." })
     Loader:SetStatus("Connecting..."); Loader:SetProgress(0.8); Loader:Finish()
 
-    local Window = CrispyLib.CreateWindow({
-        Title      = "Crispy Hub",
-        Subtitle   = "by you",
-        ConfigName = "MyScript",
-        AutoLoad   = true,
+    local Window = CrispyLib:CreateWindow({
+        Title                  = "Crispy Hub",
+        Subtitle               = "by you",
+        ConfigName             = "MyScript",
+        AutoLoad               = true,
+        Size                   = UDim2.new(0, 760, 0, 490),         -- optional custom window size
+        DragStyle              = 1,                                  -- 1 = title-bar drag (PC), 2 = full-window drag (Mobile)
+        DisabledWindowControls = {},                                 -- hide buttons: e.g. { "Exit", "Minimize" }
+        ShowUserInfo           = false,                              -- show avatar + username in title bar
+        Keybind                = Enum.KeyCode.RightShift,           -- toggle window visibility
+        AcrylicBlur            = false,                             -- BlurEffect behind window (may be detected)
     })
+    -- runtime keybind change:
+    Window:SetKeybind(Enum.KeyCode.Insert)
+
+    -- v2.2 window methods:
+    Window:SetAccent(Color3.fromRGB(255, 100, 50))  -- change accent colour live
+    Window:SetIcon("rbxassetid://12345678")          -- logo in title bar
+    Window:SetPosition(UDim2.new(0.1, 0, 0.1, 0))   -- reposition with tween
+    Window:Resize(UDim2.new(0, 900, 0, 560))         -- animate resize
+    Window:Pin()   -- lock in place (no drag)
+    Window:Unpin() -- re-enable dragging
+
+    -- v2.2 tab methods:
+    local Tab = Window:AddTab({ Name = "General", Icon = "⚙" })
+    Tab:SetBadge(5)       -- show "5" badge on the sidebar button
+    Tab:ClearBadge()      -- remove it
+    Tab:GroupEnd()        -- close AddSection group (next rows are standalone again)
+    Tab:AddDivider({ Label = "Optional Label" })
+    Tab:AddRichText({ Text = "Hello <b>world</b>", RichText = true })
+    local bar = Tab:AddProgressBar({ Name = "Loading", Default = 0.5, Flag = "prog" })
+    bar:Set(0.75)
+    bar:Animate(1, 2)     -- tween to 100% over 2 seconds
+    bar:Pulse()           -- glow loop
+    bar:StopPulse()
+
+    -- v2.2 component dependency:
+    local toggle = Tab:AddToggle({ Name = "Master", Default = true })
+    local slider  = Tab:AddSlider({ Name = "Slave", Default = 50 })
+    slider:DependsOn(toggle)  -- slider auto-disables when toggle is off
+
+    -- v2.2 config:
+    CrispyLib.Config.AutoSave(30)      -- auto-save every 30 seconds
+    CrispyLib.Config.StopAutoSave()    -- cancel it
+
+    -- v2.2 theming:
+    CrispyLib.AnimateThemeTransition("Midnight", 0.5)  -- smooth theme swap
 
     Window:AddSidebarSection("Main")
     local Tab = Window:AddTab({ Name = "General", Icon = "⚙" })
@@ -34,11 +75,80 @@
     toggle:Show()
     toggle:Hide()
 
+    -- Window-level API added in v2.1:
+    -- Window:SetKeybind(Enum.KeyCode.RightShift)  -- change toggle keybind at runtime
+
     -- All components share the same API surface:
     -- :Set(value [, silent])   :Get()
     -- :Enable() / :Disable()   :Show() / :Hide()
     -- :SetLabel(text)          (where applicable)
     -- :SetDescription(text)    (where applicable)
+
+    CHANGELOG v2 → v2.3
+    ───────────────────
+    ERROR BOUNDARY
+    • CrispyLib.OnError(fn)          — global error handler (fires on any callback error)
+    • CrispyLib.SafeRun(fn, ...)     — pcall wrapper that shows a notification on failure
+    HTTP MODULE
+    • CrispyLib.HTTP.Get(url, cb)    — wrapped HttpGet with error handling
+    • CrispyLib.HTTP.Post(url,d,cb)  — POST via request() with fallback
+    • CrispyLib.HTTP.Webhook(url,msg,opts) — Discord webhook one-liner
+    AUTO-UPDATER
+    • CrispyLib.Updater.Check(url, ver, cb) — compare remote version string
+    • CrispyLib.Updater.AutoUpdate(url, ver) — re-execute if update found + notify
+    SYSTEM MODULE
+    • CrispyLib.System.FPS()         — current framerate
+    • CrispyLib.System.Ping()        — current ping in ms
+    • CrispyLib.System.Memory()      — client memory in MB
+    • CrispyLib.System.GetExecutor() — detect executor name
+    • CrispyLib.System.Capabilities()— table of available executor APIs
+    • CrispyLib.System.StatsBar(cfg) — floating FPS/Ping/Memory HUD overlay
+    • CrispyLib.System.OnFPSDrop(threshold, fn) — callback when FPS falls below limit
+    PROFILES
+    • CrispyLib.Config.GetProfile()       — current profile name
+    • CrispyLib.Config.SetProfile(name)   — switch profile (save current, load new)
+    • CrispyLib.Config.ListProfiles()     — list saved profile names
+    • CrispyLib.Config.DeleteProfile(name)— delete a profile
+    • CrispyLib.Config.CreateProfileUI(tab) — inject a profile picker row into any tab
+    DEBUG MODULE
+    • CrispyLib.Debug.Log(msg, level)  — internal logger (info/warn/error)
+    • CrispyLib.Debug.Panel(tab)       — inject live flag viewer + log into a tab
+    • CrispyLib.Debug.Watch(flags, tab)— show specific flags live
+    • CrispyLib.Debug.Export()         — dump log to string / file
+
+    CHANGELOG v2 → v2.2
+    ───────────────────
+    NEW COMPONENTS
+    • Tab:AddProgressBar(cfg)  — animated progress bar; :Set(0-1), :SetLabel, :Pulse, :Animate
+    • Tab:AddDivider(cfg)      — thin visual separator between rows
+    • Tab:AddRichText(cfg)     — multiline text block with word-wrap
+    • Tab:GroupEnd()           — close the current section group
+    • Tab:SetBadge(n)          — add a notification count badge to sidebar tab button
+    • Tab:ClearBadge()         — remove the badge
+    COMPONENTS API
+    • component:DependsOn(other) — auto-disable this component when 'other' is false/off
+    WINDOW API
+    • Window:SetAccent(Color3) — change accent colour live across the whole window
+    • Window:SetIcon(imageId)  — add/change the logo icon in the title bar
+    • Window:SetPosition(UDim2)— programmatic reposition with smooth tween
+    • Window:Resize(UDim2)     — animated live resize
+    • Window:Pin()             — lock the window in place (no dragging)
+    • Window:Unpin()           — re-enable dragging
+    CONFIG
+    • CrispyLib.Config.AutoSave(interval, name) — periodic background auto-save
+    • CrispyLib.Config.StopAutoSave()           — cancel auto-save loop
+    THEMING
+    • CrispyLib.AnimateThemeTransition(presetName, duration) — smooth tween between theme presets
+
+    CHANGELOG v2 → v2.1
+    ───────────────────
+    • CreateWindow: Size <UDim2> — custom window dimensions
+    • CreateWindow: DragStyle <1|2> — 1=titlebar drag (PC), 2=full-window drag (Mobile)
+    • CreateWindow: DisabledWindowControls <table> — hide "Exit" and/or "Minimize" buttons
+    • CreateWindow: ShowUserInfo <boolean> — avatar + display name in title bar
+    • CreateWindow: Keybind <Enum.KeyCode> — toggle visibility on keypress
+    • CreateWindow: AcrylicBlur <boolean> — BlurEffect behind the window
+    • Window:SetKeybind(<Enum.KeyCode>) — change keybind at runtime
 
     CHANGELOG v1 → v2
     ──────────────────
@@ -640,7 +750,603 @@ end
 CrispyLib.Tasks = CrispyLib.CreateTaskGroup("CrispyLib")
 
 function CrispyLib.WrapTask(fn, opts)
-    return CrispyLib.Tasks:Wrap(fn, opts)
+    -- ════════════════════════════════════════════════════════════════════════════
+--  ERROR BOUNDARY
+--  CrispyLib.OnError(fn)    – register a global error handler
+--  CrispyLib.SafeRun(fn)    – pcall with notification on failure
+-- ════════════════════════════════════════════════════════════════════════════
+CrispyLib._errorHandlers = {}
+
+function CrispyLib.OnError(fn)
+    if type(fn) ~= "function" then return function() end end
+    table.insert(CrispyLib._errorHandlers, fn)
+    return function()
+        for i, h in ipairs(CrispyLib._errorHandlers) do
+            if h == fn then table.remove(CrispyLib._errorHandlers, i); break end
+        end
+    end
+end
+
+-- Patch SafeCall to also fire OnError handlers
+local _origSafeCall = SafeCall
+SafeCall = function(fn, ...)
+    local ok, err = _origSafeCall(fn, ...)
+    if not ok and #CrispyLib._errorHandlers > 0 then
+        for _, h in ipairs(CrispyLib._errorHandlers) do
+            pcall(h, err)
+        end
+    end
+    return ok, err
+end
+
+function CrispyLib.SafeRun(fn, ...)
+    local args = table.pack(...)
+    local ok, err = pcall(fn, table.unpack(args, 1, args.n))
+    if not ok then
+        CrispyLib.Notify({
+            Title       = "Script Error",
+            Description = tostring(err):sub(1, 120),
+            Type        = "error",
+            Duration    = 6,
+        })
+        for _, h in ipairs(CrispyLib._errorHandlers) do pcall(h, err) end
+    end
+    return ok, err
+end
+
+-- ════════════════════════════════════════════════════════════════════════════
+--  HTTP MODULE
+--  CrispyLib.HTTP.Get(url, callback)
+--  CrispyLib.HTTP.Post(url, data, callback)
+--  CrispyLib.HTTP.Webhook(url, message, opts)
+-- ════════════════════════════════════════════════════════════════════════════
+CrispyLib.HTTP = {}
+
+function CrispyLib.HTTP.Get(url, callback)
+    callback = callback or function() end
+    task.spawn(function()
+        local ok, result = pcall(function()
+            if type(request) == "function" then
+                local res = request({ Url = url, Method = "GET" })
+                return res.Body or res.body or ""
+            elseif type(game.HttpGet) == "function" then
+                return game:HttpGet(url)
+            end
+            error("No HTTP API available")
+        end)
+        SafeCall(callback, ok and result or nil, not ok and result or nil)
+    end)
+end
+
+function CrispyLib.HTTP.Post(url, data, callback)
+    callback = callback or function() end
+    task.spawn(function()
+        local ok, result = pcall(function()
+            if type(request) == "function" then
+                local body = type(data) == "table"
+                    and HttpService:JSONEncode(data)
+                    or tostring(data or "")
+                local res = request({
+                    Url     = url,
+                    Method  = "POST",
+                    Headers = { ["Content-Type"] = "application/json" },
+                    Body    = body,
+                })
+                return res.Body or res.body or ""
+            end
+            error("request() not available")
+        end)
+        SafeCall(callback, ok and result or nil, not ok and result or nil)
+    end)
+end
+
+function CrispyLib.HTTP.Webhook(url, message, opts)
+    opts = opts or {}
+    local payload = {
+        username   = opts.Username or "CrispyLib",
+        avatar_url = opts.Avatar   or "",
+        content    = type(message) == "string" and message or nil,
+        embeds     = opts.Embeds   or nil,
+    }
+    if type(message) == "table" then
+        payload.embeds = { message }
+        payload.content = nil
+    end
+    CrispyLib.HTTP.Post(url, payload, opts.Callback)
+end
+
+-- ════════════════════════════════════════════════════════════════════════════
+--  AUTO-UPDATER
+--  CrispyLib.Updater.Check(rawUrl, currentVersion, callback)
+--  CrispyLib.Updater.AutoUpdate(rawUrl, currentVersion)
+-- ════════════════════════════════════════════════════════════════════════════
+CrispyLib.Updater = {}
+
+-- Expects the remote URL to serve a plain version string e.g. "2.3.1"
+function CrispyLib.Updater.Check(url, currentVersion, callback)
+    callback = callback or function() end
+    CrispyLib.HTTP.Get(url, function(body, err)
+        if err then SafeCall(callback, false, nil, err); return end
+        local remote = (body or ""):match("^%s*([%d%.]+)%s*$")
+        if not remote then SafeCall(callback, false, nil, "Invalid version format"); return end
+        local isNewer = remote ~= tostring(currentVersion or "")
+        SafeCall(callback, isNewer, remote, nil)
+    end)
+end
+
+function CrispyLib.Updater.AutoUpdate(scriptUrl, currentVersion)
+    -- scriptUrl: URL that returns the full Lua script (not just the version)
+    -- currentVersion: a string/number representing running version
+    -- Checks a companion ".version" URL (scriptUrl .. ".version")
+    local versionUrl = scriptUrl .. ".version"
+    CrispyLib.Updater.Check(versionUrl, currentVersion, function(isNewer, remote)
+        if not isNewer then return end
+        CrispyLib.Notify({
+            Title       = "Update Available",
+            Description = "Version " .. tostring(remote) .. " is available. Reloading...",
+            Type        = "info",
+            Duration    = 4,
+        })
+        task.delay(1.5, function()
+            local ok, result = pcall(function()
+                return game:HttpGet(scriptUrl)
+            end)
+            if ok and result then
+                local fn, loadErr = loadstring(result)
+                if fn then
+                    task.spawn(fn)
+                else
+                    CrispyLib.Notify({ Title = "Update Failed", Description = tostring(loadErr), Type = "error" })
+                end
+            end
+        end)
+    end)
+end
+
+-- ════════════════════════════════════════════════════════════════════════════
+--  SYSTEM MODULE
+-- ════════════════════════════════════════════════════════════════════════════
+CrispyLib.System = {}
+
+function CrispyLib.System.FPS()
+    return math.floor(1 / RunService.RenderStepped:Wait())
+end
+
+function CrispyLib.System.Ping()
+    local ok, stats = pcall(function()
+        return game:GetService("Stats").Network.ServerStatsItem["Data Ping"]
+    end)
+    if ok and stats then
+        return math.floor(stats:GetValue())
+    end
+    return -1
+end
+
+function CrispyLib.System.Memory()
+    local ok, mem = pcall(function()
+        return game:GetService("Stats"):GetTotalMemoryUsageMb()
+    end)
+    return ok and math.floor(mem * 10) / 10 or 0
+end
+
+function CrispyLib.System.GetExecutor()
+    if type(identifyexecutor) == "function" then
+        local ok, name = pcall(identifyexecutor)
+        if ok then return name end
+    end
+    if type(getexecutorname) == "function" then
+        local ok, name = pcall(getexecutorname)
+        if ok then return name end
+    end
+    -- Fingerprint known executors by unique globals
+    if KRNL_LOADED      then return "Krnl" end
+    if syn              then return "Synapse X" end
+    if getgenv and getgenv().SW_LOADED then return "Script-Ware" end
+    if DELTA_EXECUTOR   then return "Delta" end
+    if Fluxus           then return "Fluxus" end
+    if MACSPLOIT_GLOBAL then return "MacSploit" end
+    return "Unknown"
+end
+
+function CrispyLib.System.Capabilities()
+    return {
+        writefile  = type(writefile)        == "function",
+        readfile   = type(readfile)         == "function",
+        request    = type(request)          == "function",
+        loadstring = type(loadstring)       == "function",
+        hookfunction = type(hookfunction)   == "function",
+        getgenv    = type(getgenv)          == "function",
+        drawing    = type(Drawing)          ~= "nil",
+        setclipboard = type(setclipboard)   == "function",
+        isfolder   = type(isfolder)         == "function",
+        makefolder = type(makefolder)       == "function",
+    }
+end
+
+function CrispyLib.System.OnFPSDrop(threshold, callback)
+    threshold = threshold or 30
+    local token = { Alive = true }
+    task.spawn(function()
+        local lastBelow = false
+        while token.Alive do
+            local fps = math.floor(1 / RunService.RenderStepped:Wait())
+            local below = fps < threshold
+            if below and not lastBelow then
+                SafeCall(callback, fps, threshold)
+            end
+            lastBelow = below
+        end
+    end)
+    return function() token.Alive = false end
+end
+
+-- StatsBar: floating HUD overlay showing FPS / Ping / Memory
+function CrispyLib.System.StatsBar(cfg)
+    cfg = cfg or {}
+    if CrispyLib.System._statsGui then
+        pcall(function() CrispyLib.System._statsGui:Destroy() end)
+        CrispyLib.System._statsGui = nil
+        CrispyLib.System._statsToken = nil
+        if cfg == "destroy" then return end
+    end
+
+    local sg = Create("ScreenGui", {
+        Name           = "CrispyLib_StatsBar",
+        ResetOnSpawn   = false,
+        ZIndexBehavior = Enum.ZIndexBehavior.Global,
+        IgnoreGuiInset = true,
+        DisplayOrder   = 500,
+    })
+    pcall(function() sg.Parent = CoreGui end)
+    if not sg.Parent then sg.Parent = LocalPlayer:WaitForChild("PlayerGui") end
+
+    local bar = Create("Frame", {
+        Size             = UDim2.new(0, 200, 0, 26),
+        Position         = cfg.Position or UDim2.new(1, -210, 0, 10),
+        BackgroundColor3 = cfg.Background or Color3.fromRGB(18, 18, 20),
+        BackgroundTransparency = 0.15,
+        BorderSizePixel  = 0,
+        ZIndex           = 10,
+        Parent           = sg,
+    }); Round(bar, 6); Stroke(bar, Theme.Border, 1)
+
+    local function StatLabel(xOffset, color)
+        return Create("TextLabel", {
+            Size                  = UDim2.new(0, 60, 1, 0),
+            Position              = UDim2.new(0, xOffset, 0, 0),
+            BackgroundTransparency = 1,
+            Text                  = "—",
+            TextColor3            = color or Theme.LabelText,
+            TextSize              = 11,
+            Font                  = Enum.Font.GothamBold,
+            TextXAlignment        = Enum.TextXAlignment.Center,
+            ZIndex                = 11,
+            Parent                = bar,
+        })
+    end
+    local fpsLbl  = StatLabel(2,   Color3.fromRGB(48, 209, 88))
+    local pingLbl = StatLabel(68,  Color3.fromRGB(255, 189, 46))
+    local memLbl  = StatLabel(134, Color3.fromRGB(10, 132, 255))
+
+    local token = { Alive = true }
+    CrispyLib.System._statsToken = token
+    CrispyLib.System._statsGui   = sg
+
+    task.spawn(function()
+        local fpsAccum, fpsSamples = 0, 0
+        while token.Alive and sg and sg.Parent do
+            local dt = RunService.RenderStepped:Wait()
+            fpsAccum   = fpsAccum + (1 / dt)
+            fpsSamples = fpsSamples + 1
+            if fpsSamples >= 10 then
+                local fps  = math.floor(fpsAccum / fpsSamples)
+                local ping = CrispyLib.System.Ping()
+                local mem  = CrispyLib.System.Memory()
+                pcall(function()
+                    fpsLbl.Text  = fps  .. " FPS"
+                    pingLbl.Text = (ping >= 0 and ping .. "ms" or "—")
+                    memLbl.Text  = mem  .. "MB"
+                    -- colour-code FPS
+                    fpsLbl.TextColor3 = fps >= 55 and Color3.fromRGB(48,209,88)
+                        or fps >= 30 and Color3.fromRGB(255,189,46)
+                        or Color3.fromRGB(255,69,58)
+                    -- colour-code ping
+                    if ping >= 0 then
+                        pingLbl.TextColor3 = ping <= 80 and Color3.fromRGB(48,209,88)
+                            or ping <= 150 and Color3.fromRGB(255,189,46)
+                            or Color3.fromRGB(255,69,58)
+                    end
+                end)
+                fpsAccum, fpsSamples = 0, 0
+            end
+        end
+    end)
+
+    return {
+        Destroy = function()
+            token.Alive = false
+            pcall(function() sg:Destroy() end)
+        end,
+        SetPosition = function(_, pos) bar.Position = pos end,
+    }
+end
+
+-- ════════════════════════════════════════════════════════════════════════════
+--  PROFILES  (multi-config support)
+-- ════════════════════════════════════════════════════════════════════════════
+CrispyLib.Config._profile = "default"
+
+function CrispyLib.Config.GetProfile()
+    return CrispyLib.Config._profile
+end
+
+function CrispyLib.Config.SetProfile(name)
+    if not name or name == "" then return false end
+    -- Save current profile first
+    CrispyLib.Config.Save("profile_" .. CrispyLib.Config._profile)
+    -- Switch
+    CrispyLib.Config._profile = tostring(name)
+    -- Load new profile (silently ok if doesn't exist yet)
+    CrispyLib.Config.Load("profile_" .. name)
+    return true
+end
+
+function CrispyLib.Config.ListProfiles()
+    local all = CrispyLib.Config.List()
+    local profiles = {}
+    for _, name in ipairs(all) do
+        local p = name:match("^profile_(.+)$")
+        if p then profiles[#profiles + 1] = p end
+    end
+    if #profiles == 0 then profiles = { "default" } end
+    return profiles
+end
+
+function CrispyLib.Config.DeleteProfile(name)
+    if not name or name == "default" then return false end
+    return CrispyLib.Config.Delete("profile_" .. name)
+end
+
+-- CreateProfileUI: injects a profile switcher row into any Tab
+function CrispyLib.Config.CreateProfileUI(tab)
+    if not tab or not tab.AddDropdown then
+        warn("[CrispyLib] CreateProfileUI requires a valid Tab object")
+        return
+    end
+    local profiles = CrispyLib.Config.ListProfiles()
+    local dd = tab:AddDropdown({
+        Name        = "Profile",
+        Description = "Switch or save config profiles",
+        Options     = profiles,
+        Default     = CrispyLib.Config.GetProfile(),
+        Callback    = function(v)
+            CrispyLib.Config.SetProfile(v)
+            CrispyLib.Notify({
+                Title       = "Profile Switched",
+                Description = "Active profile: " .. tostring(v),
+                Type        = "success",
+                Duration    = 3,
+            })
+        end,
+    })
+    tab:AddButton({
+        Name     = "Save Profile",
+        Description = "Save current settings to active profile",
+        Callback = function()
+            CrispyLib.Config.Save("profile_" .. CrispyLib.Config.GetProfile())
+            CrispyLib.Notify({ Title = "Saved", Description = "Profile saved.", Type = "success", Duration = 2 })
+        end,
+    })
+    tab:AddButton({
+        Name     = "New Profile",
+        Description = "Create a new profile (opens input)",
+        Callback = function()
+            -- Simple name via a new entry; for full UI use an AddInput component
+            local name = "Profile " .. tostring(#CrispyLib.Config.ListProfiles() + 1)
+            CrispyLib.Config.SetProfile(name)
+            local opts = CrispyLib.Config.ListProfiles()
+            dd:AddItem(name)
+            dd:Set(name)
+            CrispyLib.Notify({ Title = "Profile Created", Description = name, Type = "success", Duration = 3 })
+        end,
+    })
+    return dd
+end
+
+-- ════════════════════════════════════════════════════════════════════════════
+--  DEBUG MODULE
+-- ════════════════════════════════════════════════════════════════════════════
+CrispyLib.Debug = {}
+CrispyLib.Debug._log      = {}
+CrispyLib.Debug._logMax   = 200
+CrispyLib.Debug._listeners = {}
+
+local DEBUG_LEVELS = { info = "INFO", warn = "WARN", error = "ERR " }
+
+function CrispyLib.Debug.Log(msg, level)
+    level = DEBUG_LEVELS[level or "info"] or "INFO"
+    local entry = {
+        time  = os.date("%H:%M:%S"),
+        level = level,
+        msg   = tostring(msg or ""),
+    }
+    table.insert(CrispyLib.Debug._log, 1, entry)
+    if #CrispyLib.Debug._log > CrispyLib.Debug._logMax then
+        CrispyLib.Debug._log[CrispyLib.Debug._logMax + 1] = nil
+    end
+    for _, fn in ipairs(CrispyLib.Debug._listeners) do pcall(fn, entry) end
+end
+
+function CrispyLib.Debug.Export()
+    local lines = {}
+    for i = #CrispyLib.Debug._log, 1, -1 do
+        local e = CrispyLib.Debug._log[i]
+        lines[#lines + 1] = "[" .. e.time .. "] [" .. e.level .. "] " .. e.msg
+    end
+    local out = table.concat(lines, "
+")
+    if _hasWrite then
+        pcall(writefile, "CrispyLib/debug_log.txt", out)
+    end
+    return out
+end
+
+-- Wire OnError into Debug.Log automatically
+CrispyLib.OnError(function(err)
+    CrispyLib.Debug.Log(tostring(err), "error")
+end)
+
+-- Panel: inject a live flag viewer + log into a Tab
+function CrispyLib.Debug.Panel(tab)
+    if not tab then return end
+
+    tab:AddSection({ Title = "Live Flags", Description = "Current state of all registered flags" })
+
+    local flagRows = {}
+    local flagSection = {}
+
+    local function RefreshFlags()
+        local snap = CrispyLib.Config.Snapshot()
+        for flag, val in pairs(snap) do
+            if not flagRows[flag] then
+                local lbl = tab:AddRichText and tab:AddRichText({
+                    Text = "<b>" .. flag .. "</b>: " .. tostring(val),
+                    RichText = true,
+                }) or tab:AddLabel({ Name = flag, Value = tostring(val) })
+                flagRows[flag] = lbl
+            else
+                if flagRows[flag].Set then
+                    flagRows[flag]:Set("<b>" .. flag .. "</b>: " .. tostring(val))
+                end
+            end
+        end
+    end
+
+    tab:AddButton({
+        Name     = "Refresh Flags",
+        Callback = RefreshFlags,
+    })
+
+    tab:AddDivider and tab:AddDivider({ Label = "Error Log" })
+    tab:AddSection({ Title = "Error Log" })
+
+    local logLabel = tab:AddRichText and tab:AddRichText({
+        Text     = "No errors logged.",
+        RichText = false,
+    })
+
+    local function RefreshLog()
+        if not logLabel then return end
+        local lines = {}
+        for i = 1, math.min(10, #CrispyLib.Debug._log) do
+            local e = CrispyLib.Debug._log[i]
+            lines[#lines + 1] = "[" .. e.time .. "] [" .. e.level .. "] " .. e.msg
+        end
+        local txt = #lines > 0 and table.concat(lines, "
+") or "No logs yet."
+        logLabel:Set(txt)
+    end
+
+    table.insert(CrispyLib.Debug._listeners, function(_)
+        task.defer(RefreshLog)
+    end)
+
+    tab:AddButton({
+        Name     = "Export Log",
+        Callback = function()
+            CrispyLib.Debug.Export()
+            CrispyLib.Notify({ Title = "Log Exported", Description = "Saved to CrispyLib/debug_log.txt", Type = "success", Duration = 3 })
+        end,
+    })
+
+    task.defer(RefreshFlags)
+    task.defer(RefreshLog)
+end
+
+-- Watch: a compact HUD showing specific flags live
+function CrispyLib.Debug.Watch(flags, updateInterval)
+    updateInterval = updateInterval or 0.5
+    local sg = Create("ScreenGui", {
+        Name           = "CrispyLib_Watch",
+        ResetOnSpawn   = false,
+        ZIndexBehavior = Enum.ZIndexBehavior.Global,
+        IgnoreGuiInset = true,
+        DisplayOrder   = 600,
+    })
+    pcall(function() sg.Parent = CoreGui end)
+    if not sg.Parent then sg.Parent = LocalPlayer:WaitForChild("PlayerGui") end
+
+    local panel = Create("Frame", {
+        Size             = UDim2.new(0, 220, 0, 0),
+        AutomaticSize    = Enum.AutomaticSize.Y,
+        Position         = UDim2.new(0, 10, 0.5, 0),
+        AnchorPoint      = Vector2.new(0, 0.5),
+        BackgroundColor3 = Color3.fromRGB(16, 16, 18),
+        BackgroundTransparency = 0.1,
+        BorderSizePixel  = 0,
+        ZIndex           = 10,
+        Parent           = sg,
+    }); Round(panel, 8); Stroke(panel, Theme.Border, 1)
+    ListLayout(panel, Enum.FillDirection.Vertical, 0)
+    Pad(panel, 6, 6, 0, 0)
+
+    local rowMap = {}
+    for _, flag in ipairs(flags or {}) do
+        local row = Create("Frame", {
+            Size             = UDim2.new(1, 0, 0, 20),
+            BackgroundTransparency = 1,
+            ZIndex           = 11,
+            Parent           = panel,
+        })
+        Create("TextLabel", {
+            Size                  = UDim2.new(0.55, -8, 1, 0),
+            Position              = UDim2.new(0, 8, 0, 0),
+            BackgroundTransparency = 1,
+            Text                  = tostring(flag),
+            TextColor3            = Theme.SubtitleText,
+            TextSize              = 10,
+            Font                  = Enum.Font.GothamBold,
+            TextXAlignment        = Enum.TextXAlignment.Left,
+            ZIndex                = 12,
+            Parent                = row,
+        })
+        local valLbl = Create("TextLabel", {
+            Size                  = UDim2.new(0.45, -8, 1, 0),
+            Position              = UDim2.new(0.55, 0, 0, 0),
+            BackgroundTransparency = 1,
+            Text                  = "—",
+            TextColor3            = Theme.Accent,
+            TextSize              = 10,
+            Font                  = Enum.Font.GothamSemibold,
+            TextXAlignment        = Enum.TextXAlignment.Right,
+            ZIndex                = 12,
+            Parent                = row,
+        })
+        rowMap[flag] = valLbl
+    end
+
+    local token = { Alive = true }
+    task.spawn(function()
+        while token.Alive and sg and sg.Parent do
+            for flag, lbl in pairs(rowMap) do
+                local v = State.Get(flag)
+                pcall(function()
+                    lbl.Text = v ~= nil and tostring(v) or "nil"
+                end)
+            end
+            task.wait(updateInterval)
+        end
+    end)
+
+    return {
+        Destroy = function()
+            token.Alive = false
+            pcall(function() sg:Destroy() end)
+        end,
+    }
+end
+
+return CrispyLib.Tasks:Wrap(fn, opts)
 end
 
 function CrispyLib.Spawn(fn, ...)
@@ -915,6 +1621,34 @@ function CrispyLib.Config.Delete(name)
         pcall(writefile, path, "{}")
     end
     return true
+end
+
+-- Auto-save: periodic background save loop
+CrispyLib.Config._autoSaveToken = nil
+
+function CrispyLib.Config.AutoSave(interval, name)
+    interval = math.max(tonumber(interval) or 30, 5)
+    name     = name or "default"
+    if CrispyLib.Config._autoSaveToken then
+        CrispyLib.Config._autoSaveToken.Alive = false
+    end
+    local token = { Alive = true }
+    CrispyLib.Config._autoSaveToken = token
+    task.spawn(function()
+        while token.Alive do
+            task.wait(interval)
+            if not token.Alive then break end
+            CrispyLib.Config.Save(name)
+        end
+    end)
+    return token
+end
+
+function CrispyLib.Config.StopAutoSave()
+    if CrispyLib.Config._autoSaveToken then
+        CrispyLib.Config._autoSaveToken.Alive = false
+        CrispyLib.Config._autoSaveToken = nil
+    end
 end
 
 -- ════════════════════════════════════════════════════════════════════════════
@@ -1380,6 +2114,21 @@ local function ApplyMixin(obj, row, nameLbl, descLbl)
     end
     if not obj.Enable  then function obj:Enable() return self end end
     if not obj.Disable then function obj:Disable() return self end end
+
+    -- DependsOn: auto-disable this component when another component is false/off
+    function obj:DependsOn(other)
+        if not other or not other.Get then return self end
+        local function _sync(v)
+            if v then self:Enable() else self:Disable() end
+        end
+        _sync(other:Get())
+        if other.Flag then
+            self._tasks:Add(State.Subscribe(other.Flag, function(v) _sync(v) end))
+        else
+            table.insert(other._changeListeners, function(v) _sync(v) end)
+        end
+        return self
+    end
 end
 
 -- ════════════════════════════════════════════════════════════════════════════
@@ -1391,6 +2140,18 @@ function CrispyLib.CreateWindow(cfg)
     local subtitle   = cfg.Subtitle   or ""
     local configName = cfg.ConfigName
     local autoLoad   = cfg.AutoLoad   or false
+
+    -- New v2.1 window options
+    local cfgSize        = cfg.Size       -- UDim2 or nil
+    local cfgDragStyle   = cfg.DragStyle  or 1          -- 1 = titlebar, 2 = whole window
+    local cfgDisabled    = cfg.DisabledWindowControls or {}
+    local cfgShowUser    = cfg.ShowUserInfo or false
+    local cfgKeybind     = cfg.Keybind    -- Enum.KeyCode or nil
+    local cfgAcrylic     = cfg.AcrylicBlur or false
+
+    -- Build a lookup for disabled controls
+    local _disabledCtrl  = {}
+    for _, v in ipairs(cfgDisabled) do _disabledCtrl[v:lower()] = true end
 
     if configName then CrispyLib._configName = configName end
 
@@ -1409,10 +2170,18 @@ function CrispyLib.CreateWindow(cfg)
         windowTasks:Destroy()
     end)
 
+    -- Resolve window dimensions from Size or global constants
+    local _winW = WIN_W
+    local _winH = WIN_H
+    if cfgSize then
+        _winW = cfgSize.X.Offset ~= 0 and cfgSize.X.Offset or WIN_W
+        _winH = cfgSize.Y.Offset ~= 0 and cfgSize.Y.Offset or WIN_H
+    end
+
     local window = Create("Frame", {
         Name             = "Window",
-        Size             = UDim2.new(0, WIN_W, 0, WIN_H),
-        Position         = UDim2.new(0.5, -WIN_W / 2, 0.5, -WIN_H / 2),
+        Size             = UDim2.new(0, _winW, 0, _winH),
+        Position         = UDim2.new(0.5, -_winW / 2, 0.5, -_winH / 2),
         BackgroundColor3 = Theme.WindowBg,
         BorderSizePixel  = 0,
         ClipsDescendants = true,
@@ -1474,6 +2243,14 @@ function CrispyLib.CreateWindow(cfg)
     local closeBtn = TitleBtn(Theme.CloseBtn, btnRow)
     local minBtn   = TitleBtn(Theme.MinBtn,   btnRow)
     TitleBtn(Theme.MaxBtn, btnRow)
+
+    -- Hide traffic-light buttons per DisabledWindowControls
+    if _disabledCtrl["exit"] or _disabledCtrl["close"] then
+        closeBtn.Visible = false
+    end
+    if _disabledCtrl["minimize"] or _disabledCtrl["minimise"] then
+        minBtn.Visible = false
+    end
 
     local sbToggle = Create("TextButton", {
         Size                  = UDim2.new(0, 26, 0, 26),
@@ -1657,25 +2434,104 @@ function CrispyLib.CreateWindow(cfg)
     ContentCap(UDim2.new(0, 0,   1, -12))  -- bottom-left (square off)
     -- bottom-right is left rounded to blend with the window corner
 
-    for _, conn in ipairs(Draggable(titleBar, window)) do windowTasks:Add(conn) end
+    -- DragStyle 1 = titlebar only (PC), DragStyle 2 = entire window (Mobile)
+    if cfgDragStyle == 2 then
+        for _, conn in ipairs(Draggable(window, window)) do windowTasks:Add(conn) end
+    else
+        for _, conn in ipairs(Draggable(titleBar, window)) do windowTasks:Add(conn) end
+    end
+
+    -- AcrylicBlur: apply a BlurEffect to the Lighting so the game blurs behind the GUI
+    local _blur = nil
+    if cfgAcrylic then
+        local Lighting = game:GetService("Lighting")
+        local ok, blur = pcall(function()
+            local b = Instance.new("BlurEffect")
+            b.Size = 16
+            b.Parent = Lighting
+            return b
+        end)
+        if ok then _blur = blur end
+    end
+
+    -- ShowUserInfo: player avatar + username in the right side of the title bar
+    if cfgShowUser then
+        local ok, thumb = pcall(function()
+            return game:GetService("Players"):GetUserThumbnailAsync(
+                LocalPlayer.UserId,
+                Enum.ThumbnailType.HeadShot,
+                Enum.ThumbnailSize.Size48x48
+            )
+        end)
+        local avatarImg = ok and thumb or 
+
+        local userFrame = Create("Frame", {
+            Size                 = UDim2.new(0, 140, 0, 34),
+            Position             = UDim2.new(0, 14, 0.5, -17),
+            AnchorPoint          = Vector2.new(0, 0),
+            BackgroundTransparency = 1,
+            ZIndex               = Z.TitleBar + 1,
+            Parent               = titleBar,
+        })
+        -- shift it to the right of the traffic-light buttons (after btnRow + sidebar toggle + nav btns)
+        userFrame.Position = UDim2.new(1, -158, 0.5, -17)
+
+        local avatarFrame = Create("Frame", {
+            Size             = UDim2.new(0, 26, 0, 26),
+            Position         = UDim2.new(0, 0, 0.5, -13),
+            BackgroundColor3 = Theme.TabHover,
+            BorderSizePixel  = 0,
+            ZIndex           = Z.TitleBar + 2,
+            Parent           = userFrame,
+        }); Round(avatarFrame, 13)
+        if avatarImg ~= "" then
+            Create("ImageLabel", {
+                Size                 = UDim2.new(1, 0, 1, 0),
+                BackgroundTransparency = 1,
+                Image                = avatarImg,
+                ZIndex               = Z.TitleBar + 3,
+                Parent               = avatarFrame,
+            })
+        end
+        Create("TextLabel", {
+            Size                  = UDim2.new(0, 100, 1, 0),
+            Position              = UDim2.new(0, 32, 0, 0),
+            BackgroundTransparency = 1,
+            Text                  = LocalPlayer.DisplayName,
+            TextColor3            = Theme.SubtitleText,
+            TextSize              = 11,
+            Font                  = Enum.Font.GothamSemibold,
+            TextXAlignment        = Enum.TextXAlignment.Left,
+            TextTruncate          = Enum.TextTruncate.AtEnd,
+            ZIndex                = Z.TitleBar + 2,
+            Parent                = userFrame,
+        })
+    end
 
     -- ── Window controls ────────────────────────────────────────────────────
     local minimised = false
-    windowTasks:Connect(closeBtn.InputBegan, function(i)
-        if i.UserInputType == Enum.UserInputType.MouseButton1 then
-            Tween(window, { BackgroundTransparency = 1 }, TI_MID)
-            task.wait(0.25)
-            pcall(function() sg:Destroy() end)
-        end
-    end)
-    windowTasks:Connect(minBtn.InputBegan, function(i)
-        if i.UserInputType == Enum.UserInputType.MouseButton1 then
-            minimised = not minimised
-            Tween(window, {
-                Size = UDim2.new(0, WIN_W, 0, minimised and TITLEBAR_H or WIN_H),
-            }, TI_SLOW)
-        end
-    end)
+    -- Only wire close button if not disabled
+    if not (_disabledCtrl["exit"] or _disabledCtrl["close"]) then
+        windowTasks:Connect(closeBtn.InputBegan, function(i)
+            if i.UserInputType == Enum.UserInputType.MouseButton1 then
+                Tween(window, { BackgroundTransparency = 1 }, TI_MID)
+                if _blur then pcall(function() _blur:Destroy() end) end
+                task.wait(0.25)
+                pcall(function() sg:Destroy() end)
+            end
+        end)
+    end
+    -- Only wire minimize button if not disabled
+    if not (_disabledCtrl["minimize"] or _disabledCtrl["minimise"]) then
+        windowTasks:Connect(minBtn.InputBegan, function(i)
+            if i.UserInputType == Enum.UserInputType.MouseButton1 then
+                minimised = not minimised
+                Tween(window, {
+                    Size = UDim2.new(0, _winW, 0, minimised and TITLEBAR_H or _winH),
+                }, TI_SLOW)
+            end
+        end)
+    end
 
     local sbVisible = true
     windowTasks:Connect(sbToggle.MouseButton1Click, function()
@@ -1708,6 +2564,9 @@ function CrispyLib.CreateWindow(cfg)
     Win._tasks         = windowTasks
     Win._components    = {}
     Win._popups        = {}
+    Win._blur          = _blur
+    Win._winW          = _winW
+    Win._winH          = _winH
 
     -- Search: filter visible rows in the active tab (searches inside section groups too)
     local function IterRows(root, fn)
@@ -1786,6 +2645,7 @@ function CrispyLib.CreateWindow(cfg)
 
     function Win:Destroy()
         windowTasks:Destroy()
+        if self._blur then pcall(function() self._blur:Destroy() end) end
         pcall(function() sg:Destroy() end)
     end
 
@@ -1812,19 +2672,45 @@ function CrispyLib.CreateWindow(cfg)
 
     function Win:Minimize(state)
         minimised = state == nil and true or not not state
-        Tween(window, { Size = UDim2.new(0, WIN_W, 0, minimised and TITLEBAR_H or WIN_H) }, TI_SLOW)
+        Tween(window, { Size = UDim2.new(0, _winW, 0, minimised and TITLEBAR_H or _winH) }, TI_SLOW)
         return self
     end
 
     function Win:Restore()
         minimised = false
-        Tween(window, { Size = UDim2.new(0, WIN_W, 0, WIN_H) }, TI_SLOW)
+        Tween(window, { Size = UDim2.new(0, _winW, 0, _winH) }, TI_SLOW)
         return self
     end
 
     function Win:ToggleMinimize()
         minimised = not minimised
-        Tween(window, { Size = UDim2.new(0, WIN_W, 0, minimised and TITLEBAR_H or WIN_H) }, TI_SLOW)
+        Tween(window, { Size = UDim2.new(0, _winW, 0, minimised and TITLEBAR_H or _winH) }, TI_SLOW)
+        return self
+    end
+
+    -- Keybind: toggle window visibility when the bound key is pressed
+    local _keybind = cfgKeybind  -- Enum.KeyCode or nil
+    local _keybindConn = nil
+
+    local function _attachKeybind(key)
+        if _keybindConn then
+            pcall(function() _keybindConn:Disconnect() end)
+            _keybindConn = nil
+        end
+        if not key then return end
+        _keybindConn = windowTasks:Connect(UserInputService.InputBegan, function(i, processed)
+            if processed then return end
+            if i.KeyCode == key then
+                window.Visible = not window.Visible
+            end
+        end)
+    end
+
+    _attachKeybind(_keybind)
+
+    function Win:SetKeybind(key)
+        _keybind = key
+        _attachKeybind(key)
         return self
     end
 
@@ -1837,6 +2723,74 @@ function CrispyLib.CreateWindow(cfg)
         CrispyLib.Style(window, styles, persistent)
         return self
     end
+
+    -- SetAccent: live-update accent colour across the whole window
+    function Win:SetAccent(col)
+        if typeof(col) ~= "Color3" then return self end
+        CrispyLib.SetTheme({ Accent = col, AccentHover = col, AccentPress = col })
+        return self
+    end
+
+    -- SetIcon: add or replace a small logo image in the title bar (left of the title)
+    local _iconImg = nil
+    function Win:SetIcon(imageId)
+        if not imageId or imageId == "" then
+            if _iconImg then pcall(function() _iconImg:Destroy() end); _iconImg = nil end
+            return self
+        end
+        if not _iconImg then
+            _iconImg = Create("ImageLabel", {
+                Name                 = "TitleIcon",
+                Size                 = UDim2.new(0, 22, 0, 22),
+                Position             = UDim2.new(0.5, -120, 0.5, -11),
+                BackgroundTransparency = 1,
+                Image                = imageId,
+                ZIndex               = Z.TitleBar + 2,
+                Parent               = titleBar,
+            })
+        else
+            _iconImg.Image = imageId
+        end
+        return self
+    end
+
+    -- SetPosition: smoothly reposition the window
+    function Win:SetPosition(pos)
+        if typeof(pos) ~= "UDim2" then return self end
+        Tween(window, { Position = pos }, TI_MID)
+        return self
+    end
+
+    -- Resize: animate the window to a new size
+    function Win:Resize(size)
+        if typeof(size) ~= "UDim2" then return self end
+        _winW = size.X.Offset ~= 0 and size.X.Offset or _winW
+        _winH = size.Y.Offset ~= 0 and size.Y.Offset or _winH
+        Tween(window, { Size = size }, TI_SLOW)
+        return self
+    end
+
+    -- Pin / Unpin: lock the window in place
+    local _pinned = false
+    local _savedDragConns = {}
+    function Win:Pin()
+        _pinned = true
+        for _, conn in ipairs(_savedDragConns) do pcall(function() conn:Disconnect() end) end
+        _savedDragConns = {}
+        return self
+    end
+    function Win:Unpin()
+        if not _pinned then return self end
+        _pinned = false
+        local handle = cfgDragStyle == 2 and window or titleBar
+        local conns = Draggable(handle, window)
+        for _, conn in ipairs(conns) do
+            windowTasks:Add(conn)
+            _savedDragConns[#_savedDragConns + 1] = conn
+        end
+        return self
+    end
+    function Win:IsPinned() return _pinned end
 
     function Win:TaskGroup(name)
         local group = CrispyLib.CreateTaskGroup(name or ("WindowTask:" .. title))
@@ -2066,6 +3020,46 @@ function CrispyLib.CreateWindow(cfg)
         tabBtn.MouseButton1Click:Connect(function()
             ActivateTab(Tab, true)
         end)
+
+        -- Badge support on the sidebar tab button
+        local _badge = nil
+        local _badgeLbl = nil
+
+        function Tab:SetBadge(n)
+            n = tonumber(n) or 0
+            if not _badge then
+                _badge = Create("Frame", {
+                    Name             = "Badge",
+                    Size             = UDim2.new(0, 18, 0, 18),
+                    Position         = UDim2.new(1, -6, 0, 0),
+                    AnchorPoint      = Vector2.new(1, 0),
+                    BackgroundColor3 = Theme.NotifError,
+                    BorderSizePixel  = 0,
+                    ZIndex           = Z.Sidebar + 3,
+                    Parent           = tabBtn,
+                }); Round(_badge, 9)
+                _badgeLbl = Create("TextLabel", {
+                    Size                  = UDim2.new(1, 0, 1, 0),
+                    BackgroundTransparency = 1,
+                    Text                  = tostring(n > 99 and "99+" or n),
+                    TextColor3            = Color3.fromRGB(255, 255, 255),
+                    TextSize              = 9,
+                    Font                  = Enum.Font.GothamBold,
+                    TextXAlignment        = Enum.TextXAlignment.Center,
+                    ZIndex                = Z.Sidebar + 4,
+                    Parent                = _badge,
+                })
+            else
+                _badgeLbl.Text = tostring(n > 99 and "99+" or n)
+            end
+            _badge.Visible = n > 0
+            return self
+        end
+
+        function Tab:ClearBadge()
+            if _badge then _badge.Visible = false end
+            return self
+        end
 
         if #self._tabs == 0 then
             task.defer(function() ActivateTab(Tab, true) end)
@@ -3670,6 +4664,218 @@ function CrispyLib.CreateWindow(cfg)
             return obj
         end
 
+        -- ════════════════════════════════════════════════════════════════════
+        --  DIVIDER
+        -- ════════════════════════════════════════════════════════════════════
+        function Tab:AddDivider(dc)
+            dc = dc or {}
+            self._order = self._order + 1
+            local parent = self._currentGroup or self._content
+            local h = dc.Height or 1
+            local margin = dc.Margin or 6
+            local wrapper = Create("Frame", {
+                Name             = "Row_" .. self._order,
+                Size             = UDim2.new(1, 0, 0, h + margin * 2),
+                BackgroundTransparency = 1,
+                BorderSizePixel  = 0,
+                LayoutOrder      = self._order,
+                ZIndex           = Z.Content,
+                Parent           = parent,
+            })
+            Create("Frame", {
+                Size             = UDim2.new(1, -24, 0, h),
+                Position         = UDim2.new(0, 12, 0.5, 0),
+                AnchorPoint      = Vector2.new(0, 0.5),
+                BackgroundColor3 = dc.Color or Theme.Separator,
+                BorderSizePixel  = 0,
+                ZIndex           = Z.Content + 1,
+                Parent           = wrapper,
+            })
+            if dc.Label and dc.Label ~= "" then
+                local lbl = Create("TextLabel", {
+                    Size                  = UDim2.new(0, 0, 1, 0),
+                    AutomaticSize         = Enum.AutomaticSize.X,
+                    AnchorPoint           = Vector2.new(0.5, 0.5),
+                    Position              = UDim2.new(0.5, 0, 0.5, 0),
+                    BackgroundColor3      = Theme.ContentBg,
+                    BackgroundTransparency = 0,
+                    BorderSizePixel       = 0,
+                    Text                  = "  " .. dc.Label .. "  ",
+                    TextColor3            = Theme.SectionLabel,
+                    TextSize              = 10,
+                    Font                  = Enum.Font.GothamBold,
+                    ZIndex                = Z.Content + 2,
+                    Parent                = wrapper,
+                })
+                Pad(lbl, 0, 0, 4, 4)
+            end
+            local obj = {}
+            function obj:Show() wrapper.Visible = true; return self end
+            function obj:Hide() wrapper.Visible = false; return self end
+            function obj:Destroy() pcall(function() wrapper:Destroy() end) end
+            return obj
+        end
+
+        -- ════════════════════════════════════════════════════════════════════
+        --  RICH TEXT BLOCK
+        -- ════════════════════════════════════════════════════════════════════
+        function Tab:AddRichText(rc)
+            rc = rc or {}
+            self._order = self._order + 1
+            local parent = self._currentGroup or self._content
+            local txt = rc.Text or ""
+            local minH = rc.Height or 0
+
+            local row = Create("Frame", {
+                Name             = "Row_" .. self._order,
+                Size             = UDim2.new(1, 0, 0, 0),
+                AutomaticSize    = Enum.AutomaticSize.Y,
+                BackgroundColor3 = Theme.RowBg,
+                BackgroundTransparency = 0,
+                BorderSizePixel  = 0,
+                LayoutOrder      = self._order,
+                ZIndex           = Z.Content,
+                Parent           = parent,
+            })
+            if not self._currentGroup then
+                Round(row, 8); Stroke(row, Theme.Border, 1)
+            end
+            Pad(row, 12, 12, 16, 16)
+
+            local lbl = Create("TextLabel", {
+                Size                  = UDim2.new(1, 0, 0, 0),
+                AutomaticSize         = Enum.AutomaticSize.Y,
+                BackgroundTransparency = 1,
+                Text                  = txt,
+                TextColor3            = rc.Color or Theme.LabelText,
+                TextSize              = rc.TextSize or 12,
+                Font                  = rc.Font or Enum.Font.Gotham,
+                TextXAlignment        = Enum.TextXAlignment.Left,
+                TextWrapped           = true,
+                RichText              = rc.RichText ~= false,
+                ZIndex                = Z.Content + 1,
+                Parent                = row,
+            })
+
+            local obj = {}
+            function obj:Set(v)
+                lbl.Text = tostring(v or "")
+                return self
+            end
+            function obj:Get() return lbl.Text end
+            function obj:SetColor(col) lbl.TextColor3 = col; return self end
+            function obj:Show() row.Visible = true; return self end
+            function obj:Hide() row.Visible = false; return self end
+            function obj:Destroy() pcall(function() row:Destroy() end) end
+            return obj
+        end
+
+        -- ════════════════════════════════════════════════════════════════════
+        --  PROGRESS BAR
+        -- ════════════════════════════════════════════════════════════════════
+        function Tab:AddProgressBar(pc)
+            pc = pc or {}
+            local val     = math.clamp(tonumber(pc.Default) or 0, 0, 1)
+            local cb      = pc.Callback or function() end
+            local row     = MkRow(self)
+            local nameLbl, descLbl = RowLabels(row, pc.Name, pc.Description)
+
+            local trackBg = Create("Frame", {
+                Size             = UDim2.new(0, 200, 0, 8),
+                Position         = UDim2.new(1, -220, 0.5, -4),
+                BackgroundColor3 = Theme.LoaderBarBg,
+                BorderSizePixel  = 0,
+                ZIndex           = Z.Content + 2,
+                Parent           = row,
+            }); Round(trackBg, 4)
+
+            local fill = Create("Frame", {
+                Size             = UDim2.new(val, 0, 1, 0),
+                BackgroundColor3 = pc.Color or Theme.Accent,
+                BorderSizePixel  = 0,
+                ZIndex           = Z.Content + 3,
+                Parent           = trackBg,
+            }); Round(fill, 4)
+
+            local pctLbl = Create("TextLabel", {
+                Size                  = UDim2.new(0, 36, 1, 0),
+                Position              = UDim2.new(1, -16, 0, 0),
+                AnchorPoint          = Vector2.new(1, 0),
+                BackgroundTransparency = 1,
+                Text                  = math.floor(val * 100) .. "%",
+                TextColor3            = Theme.ValueText,
+                TextSize              = 11,
+                Font                  = Enum.Font.GothamSemibold,
+                TextXAlignment        = Enum.TextXAlignment.Right,
+                ZIndex                = Z.Content + 4,
+                Parent                = trackBg,
+            })
+
+            local obj = { Flag = pc.Flag }
+            local _pulseToken = nil
+
+            local function ApplyVal(v, silent)
+                val = math.clamp(tonumber(v) or 0, 0, 1)
+                local prev = State.Get(pc.Flag)
+                Tween(fill, { Size = UDim2.new(val, 0, 1, 0) }, TI_MID)
+                pctLbl.Text = math.floor(val * 100) .. "%"
+                State.Set(pc.Flag, val)
+                if not silent then SafeCall(cb, val) end
+            end
+
+            function obj:Set(v, silent) ApplyVal(v, silent); return self end
+            function obj:Get() return val end
+            function obj:SetColor(col)
+                fill.BackgroundColor3 = col
+                return self
+            end
+            function obj:Animate(target, duration)
+                local ti = TweenInfo.new(duration or 1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+                local t = math.clamp(tonumber(target) or 0, 0, 1)
+                TweenService:Create(fill, ti, { Size = UDim2.new(t, 0, 1, 0) }):Play()
+                task.delay(duration or 1, function()
+                    val = t
+                    pctLbl.Text = math.floor(val * 100) .. "%"
+                end)
+                return self
+            end
+            function obj:Pulse()
+                if _pulseToken then _pulseToken.Alive = false end
+                _pulseToken = { Alive = true }
+                task.spawn(function()
+                    while _pulseToken.Alive do
+                        Tween(fill, { BackgroundColor3 = Theme.AccentHover },
+                            TweenInfo.new(0.6, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut))
+                        task.wait(0.7)
+                        if not _pulseToken.Alive then break end
+                        Tween(fill, { BackgroundColor3 = pc.Color or Theme.Accent },
+                            TweenInfo.new(0.6, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut))
+                        task.wait(0.7)
+                    end
+                end)
+                return self
+            end
+            function obj:StopPulse()
+                if _pulseToken then _pulseToken.Alive = false; _pulseToken = nil end
+                fill.BackgroundColor3 = pc.Color or Theme.Accent
+                return self
+            end
+
+            ApplyMixin(obj, row, nameLbl, descLbl)
+            if pc.Flag then
+                Win:RegisterComponent(pc.Flag, obj)
+                Registry.Register(pc.Flag, function() return val end, function(v) ApplyVal(v, true) end)
+                State.Set(pc.Flag, val)
+            end
+            return obj
+        end
+
+        -- GroupEnd: exit the current section group so next rows are top-level
+        function Tab:GroupEnd()
+            self._currentGroup = nil
+            return self
+        end
+
         function Tab:Clear()
             for _, child in ipairs(self._content:GetChildren()) do
                 if child:IsA("GuiObject") then child:Destroy() end
@@ -3741,6 +4947,36 @@ function CrispyLib.SetThemePresetValue(name, key, value)
     local preset = CrispyLib.ThemePresets[name]
     if not preset then return false end
     preset[key] = value
+    return true
+end
+
+-- AnimateThemeTransition: smoothly tween between two themes by lerping Color3 values
+function CrispyLib.AnimateThemeTransition(presetNameOrTable, duration)
+    local target = type(presetNameOrTable) == "string"
+        and CrispyLib.ThemePresets[presetNameOrTable]
+        or  (type(presetNameOrTable) == "table" and presetNameOrTable)
+    if not target then return false end
+    duration = math.max(tonumber(duration) or 0.4, 0.05)
+
+    local steps = math.max(math.floor(duration / 0.016), 10)
+    local current = ShallowCopy(Theme)
+
+    task.spawn(function()
+        for step = 1, steps do
+            local alpha = step / steps
+            local patch = {}
+            for k, targetVal in pairs(target) do
+                local fromVal = current[k]
+                if typeof(targetVal) == "Color3" and typeof(fromVal) == "Color3" then
+                    patch[k] = fromVal:Lerp(targetVal, alpha)
+                end
+            end
+            CrispyLib.SetTheme(patch)
+            task.wait(duration / steps)
+        end
+        -- Final snap to exact values
+        CrispyLib.SetTheme(ShallowCopy(target))
+    end)
     return true
 end
 
