@@ -45,6 +45,15 @@
     bar:Pulse()           -- glow loop
     bar:StopPulse()
 
+    -- v2.3 new reusable components:
+    --  • Tab:AddScrollPanel(cfg)   — scrollable panel with expandable row items
+    --  • Tab:AddLogBox(cfg)        — auto-scrolling timestamped log console
+    --  • Tab:AddDataCard(cfg)      — live stat / counter display row
+    --  • Tab:AddTable(cfg)         — data grid with column headers + scrollable rows
+    --  • Tab:AddChipGroup(cfg)     — single/multi-select pill filter buttons
+    --  • Tab:AddAlert(cfg)         — inline info/warn/error/success status banner
+    --  • Tab:AddNumberInput(cfg)   — +/- stepper input with scroll-wheel support
+
     -- v2.2 component dependency:
     local toggle = Tab:AddToggle({ Name = "Master", Default = true })
     local slider  = Tab:AddSlider({ Name = "Slave", Default = 50 })
@@ -476,16 +485,16 @@ local function ApplyOpacity(root, opacity)
         if inst:IsA("TextLabel") or inst:IsA("TextButton") or inst:IsA("TextBox") then
             pcall(function() inst.TextTransparency = transparency end)
             pcall(function()
-                if inst.BackgroundTransparency < 1 then inst.BackgroundTransparency = transparency end
+                if transparency == 0 or inst.BackgroundTransparency < 1 then inst.BackgroundTransparency = transparency end
             end)
         elseif inst:IsA("ImageLabel") or inst:IsA("ImageButton") then
             pcall(function() inst.ImageTransparency = transparency end)
             pcall(function()
-                if inst.BackgroundTransparency < 1 then inst.BackgroundTransparency = transparency end
+                if transparency == 0 or inst.BackgroundTransparency < 1 then inst.BackgroundTransparency = transparency end
             end)
         elseif inst:IsA("Frame") or inst:IsA("ScrollingFrame") then
             pcall(function()
-                if inst.BackgroundTransparency < 1 then inst.BackgroundTransparency = transparency end
+                if transparency == 0 or inst.BackgroundTransparency < 1 then inst.BackgroundTransparency = transparency end
             end)
         elseif inst:IsA("UIStroke") then
             pcall(function() inst.Transparency = transparency end)
@@ -750,6 +759,10 @@ end
 CrispyLib.Tasks = CrispyLib.CreateTaskGroup("CrispyLib")
 
 function CrispyLib.WrapTask(fn, opts)
+    opts = opts or {}
+    return task.spawn(fn)
+end
+
     -- ════════════════════════════════════════════════════════════════════════════
 --  ERROR BOUNDARY
 --  CrispyLib.OnError(fn)    – register a global error handler
@@ -1072,88 +1085,6 @@ function CrispyLib.System.StatsBar(cfg)
 end
 
 -- ════════════════════════════════════════════════════════════════════════════
---  PROFILES  (multi-config support)
--- ════════════════════════════════════════════════════════════════════════════
-CrispyLib.Config._profile = "default"
-
-function CrispyLib.Config.GetProfile()
-    return CrispyLib.Config._profile
-end
-
-function CrispyLib.Config.SetProfile(name)
-    if not name or name == "" then return false end
-    -- Save current profile first
-    CrispyLib.Config.Save("profile_" .. CrispyLib.Config._profile)
-    -- Switch
-    CrispyLib.Config._profile = tostring(name)
-    -- Load new profile (silently ok if doesn't exist yet)
-    CrispyLib.Config.Load("profile_" .. name)
-    return true
-end
-
-function CrispyLib.Config.ListProfiles()
-    local all = CrispyLib.Config.List()
-    local profiles = {}
-    for _, name in ipairs(all) do
-        local p = name:match("^profile_(.+)$")
-        if p then profiles[#profiles + 1] = p end
-    end
-    if #profiles == 0 then profiles = { "default" } end
-    return profiles
-end
-
-function CrispyLib.Config.DeleteProfile(name)
-    if not name or name == "default" then return false end
-    return CrispyLib.Config.Delete("profile_" .. name)
-end
-
--- CreateProfileUI: injects a profile switcher row into any Tab
-function CrispyLib.Config.CreateProfileUI(tab)
-    if not tab or not tab.AddDropdown then
-        warn("[CrispyLib] CreateProfileUI requires a valid Tab object")
-        return
-    end
-    local profiles = CrispyLib.Config.ListProfiles()
-    local dd = tab:AddDropdown({
-        Name        = "Profile",
-        Description = "Switch or save config profiles",
-        Options     = profiles,
-        Default     = CrispyLib.Config.GetProfile(),
-        Callback    = function(v)
-            CrispyLib.Config.SetProfile(v)
-            CrispyLib.Notify({
-                Title       = "Profile Switched",
-                Description = "Active profile: " .. tostring(v),
-                Type        = "success",
-                Duration    = 3,
-            })
-        end,
-    })
-    tab:AddButton({
-        Name     = "Save Profile",
-        Description = "Save current settings to active profile",
-        Callback = function()
-            CrispyLib.Config.Save("profile_" .. CrispyLib.Config.GetProfile())
-            CrispyLib.Notify({ Title = "Saved", Description = "Profile saved.", Type = "success", Duration = 2 })
-        end,
-    })
-    tab:AddButton({
-        Name     = "New Profile",
-        Description = "Create a new profile (opens input)",
-        Callback = function()
-            -- Simple name via a new entry; for full UI use an AddInput component
-            local name = "Profile " .. tostring(#CrispyLib.Config.ListProfiles() + 1)
-            CrispyLib.Config.SetProfile(name)
-            local opts = CrispyLib.Config.ListProfiles()
-            dd:AddItem(name)
-            dd:Set(name)
-            CrispyLib.Notify({ Title = "Profile Created", Description = name, Type = "success", Duration = 3 })
-        end,
-    })
-    return dd
-end
-
--- ════════════════════════════════════════════════════════════════════════════
 --  DEBUG MODULE
 -- ════════════════════════════════════════════════════════════════════════════
 CrispyLib.Debug = {}
@@ -1346,8 +1277,6 @@ function CrispyLib.Debug.Watch(flags, updateInterval)
     }
 end
 
-return CrispyLib.Tasks:Wrap(fn, opts)
-end
 
 function CrispyLib.Spawn(fn, ...)
     return CrispyLib.Tasks:Spawn(fn, ...)
@@ -1481,6 +1410,88 @@ local function MKDIR()
 end
 
 CrispyLib.Config = {}
+-- ════════════════════════════════════════════════════════════════════════════
+--  PROFILES  (multi-config support)
+-- ════════════════════════════════════════════════════════════════════════════
+CrispyLib.Config._profile = "default"
+
+function CrispyLib.Config.GetProfile()
+    return CrispyLib.Config._profile
+end
+
+function CrispyLib.Config.SetProfile(name)
+    if not name or name == "" then return false end
+    -- Save current profile first
+    CrispyLib.Config.Save("profile_" .. CrispyLib.Config._profile)
+    -- Switch
+    CrispyLib.Config._profile = tostring(name)
+    -- Load new profile (silently ok if doesn't exist yet)
+    CrispyLib.Config.Load("profile_" .. name)
+    return true
+end
+
+function CrispyLib.Config.ListProfiles()
+    local all = CrispyLib.Config.List()
+    local profiles = {}
+    for _, name in ipairs(all) do
+        local p = name:match("^profile_(.+)$")
+        if p then profiles[#profiles + 1] = p end
+    end
+    if #profiles == 0 then profiles = { "default" } end
+    return profiles
+end
+
+function CrispyLib.Config.DeleteProfile(name)
+    if not name or name == "default" then return false end
+    return CrispyLib.Config.Delete("profile_" .. name)
+end
+
+-- CreateProfileUI: injects a profile switcher row into any Tab
+function CrispyLib.Config.CreateProfileUI(tab)
+    if not tab or not tab.AddDropdown then
+        warn("[CrispyLib] CreateProfileUI requires a valid Tab object")
+        return
+    end
+    local profiles = CrispyLib.Config.ListProfiles()
+    local dd = tab:AddDropdown({
+        Name        = "Profile",
+        Description = "Switch or save config profiles",
+        Options     = profiles,
+        Default     = CrispyLib.Config.GetProfile(),
+        Callback    = function(v)
+            CrispyLib.Config.SetProfile(v)
+            CrispyLib.Notify({
+                Title       = "Profile Switched",
+                Description = "Active profile: " .. tostring(v),
+                Type        = "success",
+                Duration    = 3,
+            })
+        end,
+    })
+    tab:AddButton({
+        Name     = "Save Profile",
+        Description = "Save current settings to active profile",
+        Callback = function()
+            CrispyLib.Config.Save("profile_" .. CrispyLib.Config.GetProfile())
+            CrispyLib.Notify({ Title = "Saved", Description = "Profile saved.", Type = "success", Duration = 2 })
+        end,
+    })
+    tab:AddButton({
+        Name     = "New Profile",
+        Description = "Create a new profile (opens input)",
+        Callback = function()
+            -- Simple name via a new entry; for full UI use an AddInput component
+            local name = "Profile " .. tostring(#CrispyLib.Config.ListProfiles() + 1)
+            CrispyLib.Config.SetProfile(name)
+            local opts = CrispyLib.Config.ListProfiles()
+            dd:AddItem(name)
+            dd:Set(name)
+            CrispyLib.Notify({ Title = "Profile Created", Description = name, Type = "success", Duration = 3 })
+        end,
+    })
+    return dd
+end
+
 CrispyLib.Config.Version = 1
 CrispyLib.Config._migrations = {}
 
@@ -2435,10 +2446,18 @@ function CrispyLib.CreateWindow(cfg)
     -- bottom-right is left rounded to blend with the window corner
 
     -- DragStyle 1 = titlebar only (PC), DragStyle 2 = entire window (Mobile)
+    local _pinned = false
+    local _savedDragConns = {}
     if cfgDragStyle == 2 then
-        for _, conn in ipairs(Draggable(window, window)) do windowTasks:Add(conn) end
+        for _, conn in ipairs(Draggable(window, window)) do
+            windowTasks:Add(conn)
+            _savedDragConns[#_savedDragConns + 1] = conn
+        end
     else
-        for _, conn in ipairs(Draggable(titleBar, window)) do windowTasks:Add(conn) end
+        for _, conn in ipairs(Draggable(titleBar, window)) do
+            windowTasks:Add(conn)
+            _savedDragConns[#_savedDragConns + 1] = conn
+        end
     end
 
     -- AcrylicBlur: apply a BlurEffect to the Lighting so the game blurs behind the GUI
@@ -2463,7 +2482,7 @@ function CrispyLib.CreateWindow(cfg)
                 Enum.ThumbnailSize.Size48x48
             )
         end)
-        local avatarImg = ok and thumb or 
+        local avatarImg = ok and thumb or ""
 
         local userFrame = Create("Frame", {
             Size                 = UDim2.new(0, 140, 0, 34),
@@ -2771,8 +2790,6 @@ function CrispyLib.CreateWindow(cfg)
     end
 
     -- Pin / Unpin: lock the window in place
-    local _pinned = false
-    local _savedDragConns = {}
     function Win:Pin()
         _pinned = true
         for _, conn in ipairs(_savedDragConns) do pcall(function() conn:Disconnect() end) end
@@ -4613,6 +4630,43 @@ function CrispyLib.CreateWindow(cfg)
             end
             function obj:Get() return val end
             function obj:Increment(amount) self:Set(val + (amount or 1)); return self end
+            local _pulseConn, _pulseActive
+            function obj:Pulse()
+                if _pulseActive then return self end
+                _pulseActive = true
+                local go = true
+                task.spawn(function()
+                    while go and _pulseActive do
+                        Tween(fill, { BackgroundTransparency = 0.5 }, TweenInfo.new(0.5))
+                        task.wait(0.55)
+                        if not _pulseActive then break end
+                        Tween(fill, { BackgroundTransparency = 0 }, TweenInfo.new(0.5))
+                        task.wait(0.55)
+                    end
+                end)
+                _pulseConn = function() go = false end
+                return self
+            end
+            function obj:StopPulse()
+                _pulseActive = false
+                if _pulseConn then _pulseConn() end
+                Tween(fill, { BackgroundTransparency = 0 }, TweenInfo.new(0.2))
+                return self
+            end
+            function obj:Animate(target, duration)
+                local t = math.clamp(tonumber(target) or 0, minV, maxV)
+                local d = tonumber(duration) or 0.4
+                local steps = math.max(math.floor(d / 0.016), 5)
+                local startVal = val
+                task.spawn(function()
+                    for s = 1, steps do
+                        self:Set(startVal + (t - startVal) * (s / steps), true)
+                        task.wait(d / steps)
+                    end
+                    self:Set(t)
+                end)
+                return self
+            end
             ApplyMixin(obj, row, nameLbl, descLbl)
             Win:RegisterComponent(pc.Flag, obj)
             Registry.Register(pc.Flag, function() return val end, function(v) obj:Set(v, true) end)
@@ -4663,6 +4717,1201 @@ function CrispyLib.CreateWindow(cfg)
             if scfg.Flag then State.Set(scfg.Flag, selected) end
             return obj
         end
+
+
+        -- ════════════════════════════════════════════════════════════════════
+        --  SCROLL PANEL
+        --  A scrollable container of expandable row items.
+        --  Each row has an optional badge pill, label, subtext, chevron
+        --  and a list of action buttons that animate open on click.
+        --
+        --  Reusable for: remote lists, player lists, item inventories,
+        --               log entries, search results — any dynamic collection.
+        --
+        --  USAGE
+        --  local panel = Tab:AddScrollPanel({
+        --      Name       = "Results",        -- header label (uppercased)
+        --      Height     = 240,              -- pixel height  (default 240)
+        --      EmptyText  = "Nothing here.",  -- shown when list is empty
+        --      ShowHeader = true,             -- label bar   (default true)
+        --  })
+        --  local row = panel:AddRow({
+        --      Label      = "Game.RS.Events.FireBullet",
+        --      Badge      = "RE",                          -- pill text
+        --      BadgeColor = Color3.fromRGB(10,132,255),    -- pill colour
+        --      Subtext    = "0 calls",
+        --      Actions    = {
+        --          { Label="Fire",   Callback=fn },
+        --          { Label="Delete", Callback=fn, Danger=true },
+        --      },
+        --  })
+        --  row:SetLabel("x")   row:SetSubtext("42 calls")
+        --  row:SetBadge("RF",col)  row:Flash()  row:Remove()
+        --  row:Expand()  row:Collapse()
+        --  panel:Clear()  panel:ScrollToBottom()  panel:GetRowCount()
+        -- ════════════════════════════════════════════════════════════════════
+        function Tab:AddScrollPanel(pc)
+            pc = pc or {}
+            self._order = self._order + 1
+            local parent   = self._currentGroup or self._content
+            local panelH   = pc.Height     or 240
+            local showHdr  = pc.ShowHeader ~= false
+            local emptyTxt = pc.EmptyText  or "Empty"
+            local hdrH     = showHdr and 28 or 0
+
+            local wrapper = Create("Frame", {
+                Name             = "Row_" .. self._order,
+                Size             = UDim2.new(1, 0, 0, panelH + hdrH),
+                BackgroundColor3 = Theme.ContentBg,
+                BorderSizePixel  = 0,
+                LayoutOrder      = self._order,
+                ZIndex           = Z.Content,
+                Parent           = parent,
+            })
+            Round(wrapper, 8)
+            Stroke(wrapper, Theme.Border, 1)
+
+            if showHdr then
+                local hdr = Create("Frame", {
+                    Size             = UDim2.new(1, 0, 0, hdrH),
+                    BackgroundColor3 = Theme.TitleBarBg,
+                    BorderSizePixel  = 0,
+                    ZIndex           = Z.Content + 1,
+                    Parent           = wrapper,
+                })
+                Create("UICorner", { CornerRadius = UDim.new(0, 8), Parent = hdr })
+                Create("Frame", {
+                    Size             = UDim2.new(1, 0, 0.5, 0),
+                    Position         = UDim2.new(0, 0, 0.5, 0),
+                    BackgroundColor3 = Theme.TitleBarBg,
+                    BorderSizePixel  = 0,
+                    ZIndex           = Z.Content + 1,
+                    Parent           = hdr,
+                })
+                Create("TextLabel", {
+                    Size           = UDim2.new(1, -12, 1, 0),
+                    Position       = UDim2.new(0, 10, 0, 0),
+                    BackgroundTransparency = 1,
+                    Text           = (pc.Name or "Panel"):upper(),
+                    TextColor3     = Theme.SubtitleText,
+                    TextSize       = 10,
+                    Font           = Enum.Font.GothamBold,
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    ZIndex         = Z.Content + 2,
+                    Parent         = hdr,
+                })
+                Create("Frame", {
+                    Size             = UDim2.new(1, 0, 0, 1),
+                    Position         = UDim2.new(0, 0, 1, -1),
+                    BackgroundColor3 = Theme.Separator,
+                    BorderSizePixel  = 0,
+                    ZIndex           = Z.Content + 2,
+                    Parent           = hdr,
+                })
+            end
+
+            local scrollHost = Create("Frame", {
+                Size             = UDim2.new(1, 0, 0, panelH),
+                Position         = UDim2.new(0, 0, 0, hdrH),
+                BackgroundTransparency = 1,
+                ClipsDescendants = true,
+                BorderSizePixel  = 0,
+                ZIndex           = Z.Content,
+                Parent           = wrapper,
+            })
+            local scroll = Create("ScrollingFrame", {
+                Size                 = UDim2.new(1, 0, 1, 0),
+                BackgroundTransparency = 1,
+                ScrollBarThickness   = 3,
+                ScrollBarImageColor3 = Theme.ScrollThumb,
+                CanvasSize           = UDim2.new(0, 0, 0, 0),
+                AutomaticCanvasSize  = Enum.AutomaticSize.Y,
+                BorderSizePixel      = 0,
+                ZIndex               = Z.Content,
+                Parent               = scrollHost,
+            })
+            local listContent = Create("Frame", {
+                Size          = UDim2.new(1, -8, 0, 0),
+                Position      = UDim2.new(0, 4, 0, 0),
+                BackgroundTransparency = 1,
+                AutomaticSize = Enum.AutomaticSize.Y,
+                ZIndex        = Z.Content,
+                Parent        = scroll,
+            })
+            ListLayout(listContent, Enum.FillDirection.Vertical, 3)
+            Pad(listContent, 3, 3, 0, 0)
+
+            local emptyLbl = Create("TextLabel", {
+                Size           = UDim2.new(1, 0, 1, 0),
+                BackgroundTransparency = 1,
+                Text           = emptyTxt,
+                TextColor3     = Theme.DescText,
+                TextSize       = 12,
+                Font           = Enum.Font.Gotham,
+                TextXAlignment = Enum.TextXAlignment.Center,
+                ZIndex         = Z.Content + 1,
+                Parent         = scrollHost,
+                Visible        = true,
+            })
+
+            local rowCount = 0
+
+            local function BuildRow(rcfg)
+                rcfg = rcfg or {}
+                local actions  = rcfg.Actions or {}
+                local nAct     = #actions
+                local actBtnH  = 32
+                local actGap   = 3
+                local actPadV  = 5
+                local actBlock = actPadV * 2 + nAct * actBtnH + math.max(0, nAct - 1) * actGap
+                local hH       = 44
+                local isOpen   = false
+
+                local itemWrap = Create("Frame", {
+                    Size             = UDim2.new(1, 0, 0, hH),
+                    BackgroundColor3 = Theme.RowBg,
+                    BorderSizePixel  = 0,
+                    ClipsDescendants = true,
+                    ZIndex           = Z.Content + 1,
+                    Parent           = listContent,
+                })
+                Round(itemWrap, 7)
+
+                local hit = Create("TextButton", {
+                    Size                  = UDim2.new(1, 0, 0, hH),
+                    BackgroundTransparency = 1,
+                    Text                  = "",
+                    AutoButtonColor       = false,
+                    BorderSizePixel       = 0,
+                    ZIndex                = Z.Content + 3,
+                    Parent                = itemWrap,
+                })
+
+                local hasBadge = rcfg.Badge and rcfg.Badge ~= ""
+                local badgePill
+                if hasBadge then
+                    badgePill = Create("TextLabel", {
+                        Size             = UDim2.new(0, 26, 0, 15),
+                        Position         = UDim2.new(0, 9, 0.5, -7),
+                        BackgroundColor3 = rcfg.BadgeColor or Theme.Accent,
+                        Text             = rcfg.Badge,
+                        TextColor3       = Color3.new(1, 1, 1),
+                        TextSize         = 9,
+                        Font             = Enum.Font.GothamBold,
+                        TextXAlignment   = Enum.TextXAlignment.Center,
+                        ZIndex           = Z.Content + 4,
+                        Parent           = itemWrap,
+                    })
+                    Round(badgePill, 4)
+                end
+
+                local labelX = hasBadge and 43 or 10
+                local mainLbl = Create("TextLabel", {
+                    Size            = UDim2.new(1, -(labelX + 32), 0, 15),
+                    Position        = UDim2.new(0, labelX, 0, 7),
+                    BackgroundTransparency = 1,
+                    Text            = rcfg.Label or "",
+                    TextColor3      = Theme.LabelText,
+                    TextSize        = 12,
+                    Font            = Enum.Font.GothamMedium,
+                    TextXAlignment  = Enum.TextXAlignment.Left,
+                    TextTruncate    = Enum.TextTruncate.AtEnd,
+                    ZIndex          = Z.Content + 4,
+                    Parent          = itemWrap,
+                })
+                local subLbl = Create("TextLabel", {
+                    Size            = UDim2.new(1, -(labelX + 32), 0, 13),
+                    Position        = UDim2.new(0, labelX, 0, 25),
+                    BackgroundTransparency = 1,
+                    Text            = rcfg.Subtext or "",
+                    TextColor3      = Theme.DescText,
+                    TextSize        = 10,
+                    Font            = Enum.Font.Gotham,
+                    TextXAlignment  = Enum.TextXAlignment.Left,
+                    TextTruncate    = Enum.TextTruncate.AtEnd,
+                    ZIndex          = Z.Content + 4,
+                    Parent          = itemWrap,
+                })
+                local chevron = Create("TextLabel", {
+                    Size            = UDim2.new(0, 18, 0, 18),
+                    Position        = UDim2.new(1, -24, 0.5, -9),
+                    BackgroundTransparency = 1,
+                    Text            = nAct > 0 and ">" or "",
+                    TextColor3      = Theme.DescText,
+                    TextSize        = 14,
+                    Font            = Enum.Font.GothamBold,
+                    TextXAlignment  = Enum.TextXAlignment.Center,
+                    ZIndex          = Z.Content + 4,
+                    Parent          = itemWrap,
+                })
+                Create("Frame", {
+                    Size             = UDim2.new(1, -14, 0, 1),
+                    Position         = UDim2.new(0, 7, 0, hH),
+                    BackgroundColor3 = Theme.Separator,
+                    BorderSizePixel  = 0,
+                    ZIndex           = Z.Content + 2,
+                    Parent           = itemWrap,
+                })
+                local actArea = Create("Frame", {
+                    Size             = UDim2.new(1, -14, 0, actBlock),
+                    Position         = UDim2.new(0, 7, 0, hH + 2),
+                    BackgroundTransparency = 1,
+                    ZIndex           = Z.Content + 2,
+                    Parent           = itemWrap,
+                })
+                ListLayout(actArea, Enum.FillDirection.Vertical, actGap)
+                Pad(actArea, actPadV, actPadV, 0, 0)
+
+                for i, ac in ipairs(actions) do
+                    local isDanger = ac.Danger == true
+                    local aBg  = isDanger and Color3.fromRGB(55,18,18)   or Theme.RowBg
+                    local aTc  = isDanger and Color3.fromRGB(255,69,58)  or Theme.LabelText
+                    local aHov = isDanger and Color3.fromRGB(75,22,22)   or Theme.RowHover
+                    local aBtn = Create("TextButton", {
+                        Size             = UDim2.new(1, 0, 0, actBtnH),
+                        BackgroundColor3 = aBg,
+                        Text             = ac.Label or "Action",
+                        TextColor3       = aTc,
+                        TextSize         = 11,
+                        Font             = Enum.Font.GothamMedium,
+                        AutoButtonColor  = false,
+                        BorderSizePixel  = 0,
+                        LayoutOrder      = i,
+                        ZIndex           = Z.Content + 3,
+                        Parent           = actArea,
+                    })
+                    Round(aBtn, 5)
+                    aBtn.MouseEnter:Connect(function() Tween(aBtn, { BackgroundColor3 = aHov }, TI_FAST) end)
+                    aBtn.MouseLeave:Connect(function() Tween(aBtn, { BackgroundColor3 = aBg  }, TI_FAST) end)
+                    aBtn.MouseButton1Click:Connect(function()
+                        if type(ac.Callback) == "function" then SafeCall(ac.Callback) end
+                    end)
+                end
+
+                hit.MouseEnter:Connect(function()
+                    if not isOpen then Tween(itemWrap, { BackgroundColor3 = Theme.RowHover }, TI_FAST) end
+                end)
+                hit.MouseLeave:Connect(function()
+                    if not isOpen then Tween(itemWrap, { BackgroundColor3 = Theme.RowBg    }, TI_FAST) end
+                end)
+
+                local function SetOpen(v)
+                    isOpen = v
+                    local targetH = v and (hH + 3 + actBlock) or hH
+                    Tween(itemWrap, { Size = UDim2.new(1, 0, 0, targetH) }, TI_MID)
+                    Tween(chevron,  { Rotation = v and 90 or 0 },           TI_MID)
+                    Tween(itemWrap, { BackgroundColor3 = v and Color3.fromRGB(34,34,44) or Theme.RowBg }, TI_FAST)
+                end
+
+                if nAct > 0 then
+                    hit.MouseButton1Click:Connect(function() SetOpen(not isOpen) end)
+                end
+
+                local rowObj = {}
+                function rowObj:SetLabel(t)   mainLbl.Text = tostring(t) end
+                function rowObj:SetSubtext(t) subLbl.Text  = tostring(t) end
+                function rowObj:SetBadge(t, c)
+                    if badgePill then
+                        badgePill.Text = tostring(t)
+                        if c then badgePill.BackgroundColor3 = c end
+                    end
+                end
+                function rowObj:Flash()
+                    Tween(itemWrap, { BackgroundColor3 = Color3.fromRGB(10,60,160) }, TI_FAST)
+                    task.delay(0.4, function()
+                        if itemWrap and itemWrap.Parent then
+                            Tween(itemWrap, { BackgroundColor3 = isOpen and Color3.fromRGB(34,34,44) or Theme.RowBg }, TI_MID)
+                        end
+                    end)
+                end
+                function rowObj:Expand()   SetOpen(true)  end
+                function rowObj:Collapse() SetOpen(false) end
+                function rowObj:Remove()
+                    Tween(itemWrap, { Size = UDim2.new(1, 0, 0, 0) }, TI_FAST)
+                    task.delay(0.16, function()
+                        if itemWrap then itemWrap:Destroy() end
+                        rowCount = math.max(0, rowCount - 1)
+                        emptyLbl.Visible = rowCount == 0
+                    end)
+                end
+                return rowObj
+            end -- BuildRow
+
+            local panelObj = {}
+            function panelObj:AddRow(rcfg)
+                rowCount = rowCount + 1
+                emptyLbl.Visible = false
+                return BuildRow(rcfg)
+            end
+            function panelObj:Clear()
+                for _, c in ipairs(listContent:GetChildren()) do
+                    if c:IsA("Frame") then c:Destroy() end
+                end
+                rowCount = 0
+                emptyLbl.Visible = true
+            end
+            function panelObj:ScrollToBottom()
+                task.defer(function()
+                    if scroll and scroll.Parent then scroll.CanvasPosition = Vector2.new(0, 1e9) end
+                end)
+            end
+            function panelObj:ScrollToTop()
+                scroll.CanvasPosition = Vector2.new(0, 0)
+            end
+            function panelObj:SetHeight(h)
+                panelH = h
+                wrapper.Size    = UDim2.new(1, 0, 0, h + hdrH)
+                scrollHost.Size = UDim2.new(1, 0, 0, h)
+            end
+            function panelObj:GetRowCount() return rowCount end
+            function panelObj:Show()     wrapper.Visible = true  end
+            function panelObj:Hide()     wrapper.Visible = false end
+            function panelObj:GetFrame() return wrapper end
+            return panelObj
+        end
+
+        -- ════════════════════════════════════════════════════════════════════
+        --  LOG BOX
+        --  Auto-scrolling timestamped console with colour-coded log levels.
+        --  Reusable for: debug consoles, event logs, remote call history,
+        --               chat feeds, error output, any live text stream.
+        --
+        --  Levels: "info" | "warn" | "error" | "success" | "debug"
+        --
+        --  USAGE
+        --  local log = Tab:AddLogBox({
+        --      Name       = "Console",
+        --      Height     = 160,
+        --      MaxLines   = 200,
+        --      Monospace  = true,
+        --      AutoScroll = true,
+        --  })
+        --  log:Write("Connected")           -- info
+        --  log:Write("Watch out!", "warn")
+        --  log:Write("Crash!", "error")
+        --  log:Write("Done", "success")
+        --  log:Clear()
+        --  log:SetAutoScroll(false)
+        --  local dump = log:Export()
+        -- ════════════════════════════════════════════════════════════════════
+        function Tab:AddLogBox(lc)
+            lc = lc or {}
+            self._order = self._order + 1
+            local parent     = self._currentGroup or self._content
+            local boxH       = lc.Height     or 160
+            local maxLines   = lc.MaxLines   or 200
+            local autoScroll = lc.AutoScroll ~= false
+            local mono       = lc.Monospace  ~= false
+            local hdrH       = 28
+
+            local wrapper = Create("Frame", {
+                Name             = "Row_" .. self._order,
+                Size             = UDim2.new(1, 0, 0, boxH + hdrH),
+                BackgroundColor3 = Color3.fromRGB(14, 14, 16),
+                BorderSizePixel  = 0,
+                LayoutOrder      = self._order,
+                ZIndex           = Z.Content,
+                Parent           = parent,
+            })
+            Round(wrapper, 8)
+            Stroke(wrapper, Theme.Border, 1)
+
+            local hdr = Create("Frame", {
+                Size             = UDim2.new(1, 0, 0, hdrH),
+                BackgroundColor3 = Theme.TitleBarBg,
+                BorderSizePixel  = 0,
+                ZIndex           = Z.Content + 1,
+                Parent           = wrapper,
+            })
+            Create("UICorner", { CornerRadius = UDim.new(0, 8), Parent = hdr })
+            Create("Frame", {
+                Size             = UDim2.new(1, 0, 0.5, 0),
+                Position         = UDim2.new(0, 0, 0.5, 0),
+                BackgroundColor3 = Theme.TitleBarBg,
+                BorderSizePixel  = 0,
+                ZIndex           = Z.Content + 1,
+                Parent           = hdr,
+            })
+            Create("TextLabel", {
+                Size           = UDim2.new(1, -64, 1, 0),
+                Position       = UDim2.new(0, 10, 0, 0),
+                BackgroundTransparency = 1,
+                Text           = (lc.Name or "Log"):upper(),
+                TextColor3     = Theme.SubtitleText,
+                TextSize       = 10,
+                Font           = Enum.Font.GothamBold,
+                TextXAlignment = Enum.TextXAlignment.Left,
+                ZIndex         = Z.Content + 2,
+                Parent         = hdr,
+            })
+            local clearBtn = Create("TextButton", {
+                Size             = UDim2.new(0, 48, 0, 18),
+                Position         = UDim2.new(1, -54, 0.5, -9),
+                BackgroundColor3 = Theme.RowBg,
+                Text             = "Clear",
+                TextColor3       = Theme.SubtitleText,
+                TextSize         = 10,
+                Font             = Enum.Font.GothamSemibold,
+                AutoButtonColor  = false,
+                BorderSizePixel  = 0,
+                ZIndex           = Z.Content + 3,
+                Parent           = hdr,
+            })
+            Round(clearBtn, 5)
+            Create("Frame", {
+                Size             = UDim2.new(1, 0, 0, 1),
+                Position         = UDim2.new(0, 0, 1, -1),
+                BackgroundColor3 = Theme.Separator,
+                BorderSizePixel  = 0,
+                ZIndex           = Z.Content + 2,
+                Parent           = hdr,
+            })
+
+            local scroll = Create("ScrollingFrame", {
+                Size                 = UDim2.new(1, 0, 0, boxH),
+                Position             = UDim2.new(0, 0, 0, hdrH),
+                BackgroundTransparency = 1,
+                ScrollBarThickness   = 3,
+                ScrollBarImageColor3 = Theme.ScrollThumb,
+                CanvasSize           = UDim2.new(0, 0, 0, 0),
+                AutomaticCanvasSize  = Enum.AutomaticSize.Y,
+                BorderSizePixel      = 0,
+                ZIndex               = Z.Content,
+                Parent               = wrapper,
+            })
+            local lineList = Create("Frame", {
+                Size          = UDim2.new(1, 0, 0, 0),
+                AutomaticSize = Enum.AutomaticSize.Y,
+                BackgroundTransparency = 1,
+                ZIndex        = Z.Content + 1,
+                Parent        = scroll,
+            })
+            ListLayout(lineList, Enum.FillDirection.Vertical, 0)
+            Pad(lineList, 4, 4, 6, 6)
+
+            local LOG_COLORS = {
+                info    = Theme.LabelText,
+                warn    = Color3.fromRGB(255,189,46),
+                error   = Color3.fromRGB(255,69,58),
+                success = Color3.fromRGB(48,209,88),
+                debug   = Color3.fromRGB(110,110,130),
+            }
+            local lines     = {}
+            local lineCount = 0
+            local logObj    = {}
+
+            function logObj:Write(text, level)
+                level = level or "info"
+                local col  = LOG_COLORS[level] or Theme.LabelText
+                local ts   = os.date("%H:%M:%S")
+                local full = "[" .. ts .. "] " .. tostring(text)
+                if lineCount >= maxLines then
+                    local oldest = lines[1]
+                    if oldest and oldest.Parent then oldest:Destroy() end
+                    table.remove(lines, 1)
+                    lineCount = lineCount - 1
+                end
+                local lbl = Create("TextLabel", {
+                    Size                  = UDim2.new(1, -4, 0, 0),
+                    AutomaticSize         = Enum.AutomaticSize.Y,
+                    BackgroundTransparency = 1,
+                    Text                  = full,
+                    TextColor3            = col,
+                    TextSize              = 11,
+                    Font                  = mono and Enum.Font.RobotoMono or Enum.Font.Gotham,
+                    TextXAlignment        = Enum.TextXAlignment.Left,
+                    TextWrapped           = true,
+                    RichText              = false,
+                    ZIndex                = Z.Content + 2,
+                    Parent                = lineList,
+                })
+                lineCount = lineCount + 1
+                table.insert(lines, lbl)
+                if autoScroll then
+                    task.defer(function()
+                        if scroll and scroll.Parent then scroll.CanvasPosition = Vector2.new(0, 1e9) end
+                    end)
+                end
+                return self
+            end
+
+            function logObj:Clear()
+                for _, l in ipairs(lines) do if l and l.Parent then l:Destroy() end end
+                lines = {}; lineCount = 0
+                return self
+            end
+            function logObj:SetAutoScroll(v) autoScroll = not not v; return self end
+            function logObj:Export()
+                local parts = {}
+                for _, l in ipairs(lines) do if l and l.Parent then parts[#parts+1] = l.Text end end
+                return table.concat(parts, "\n")
+            end
+            function logObj:Show()     wrapper.Visible = true  end
+            function logObj:Hide()     wrapper.Visible = false end
+            function logObj:GetFrame() return wrapper end
+
+            clearBtn.MouseButton1Click:Connect(function() logObj:Clear() end)
+            return logObj
+        end
+
+        -- ════════════════════════════════════════════════════════════════════
+        --  DATA CARD  (stat / counter display row)
+        --  Reusable for: FPS, ping, memory, score, call counts, uptime,
+        --               any key/value stat that should update live.
+        --
+        --  USAGE
+        --  local card = Tab:AddDataCard({
+        --      Name    = "Call Count",
+        --      Value   = "0",
+        --      Subtext = "since load",
+        --      Accent  = Color3.fromRGB(10,132,255),
+        --  })
+        --  card:SetValue("42")
+        --  card:SetSubtext("in last 10 s")
+        --  card:SetAccent(col)
+        --  card:Pulse()   -- brief text flash on update
+        -- ════════════════════════════════════════════════════════════════════
+        function Tab:AddDataCard(dc)
+            dc = dc or {}
+            local row       = MkRow(self, 56)
+            local nameLbl, descLbl = RowLabels(row, dc.Name, dc.Description)
+            local accentCol = dc.Accent or Theme.Accent
+
+            local stripe = Create("Frame", {
+                Size             = UDim2.new(0, 3, 0.55, 0),
+                Position         = UDim2.new(0, 6, 0.5, 0),
+                AnchorPoint      = Vector2.new(0, 0.5),
+                BackgroundColor3 = accentCol,
+                BorderSizePixel  = 0,
+                ZIndex           = Z.Content + 2,
+                Parent           = row,
+            })
+            Round(stripe, 2)
+
+            local valueLbl = Create("TextLabel", {
+                Size                  = UDim2.new(0, 140, 0, 22),
+                Position              = UDim2.new(1, -158, 0.5, -11),
+                BackgroundTransparency = 1,
+                Text                  = tostring(dc.Value or "0"),
+                TextColor3            = accentCol,
+                TextSize              = 20,
+                Font                  = Enum.Font.GothamBold,
+                TextXAlignment        = Enum.TextXAlignment.Right,
+                ZIndex                = Z.Content + 3,
+                Parent                = row,
+            })
+            local subtextLbl = nil
+            if dc.Subtext then
+                subtextLbl = Create("TextLabel", {
+                    Size                  = UDim2.new(0, 140, 0, 13),
+                    Position              = UDim2.new(1, -158, 0.5, 12),
+                    BackgroundTransparency = 1,
+                    Text                  = tostring(dc.Subtext),
+                    TextColor3            = Theme.DescText,
+                    TextSize              = 10,
+                    Font                  = Enum.Font.Gotham,
+                    TextXAlignment        = Enum.TextXAlignment.Right,
+                    ZIndex                = Z.Content + 3,
+                    Parent                = row,
+                })
+            end
+
+            local obj = {}
+            function obj:SetValue(v) valueLbl.Text = tostring(v); return self end
+            function obj:Get()       return valueLbl.Text end
+            function obj:SetSubtext(v)
+                if subtextLbl then subtextLbl.Text = tostring(v) end; return self
+            end
+            function obj:SetAccent(col)
+                accentCol = col
+                Tween(stripe,   { BackgroundColor3 = col }, TI_FAST)
+                Tween(valueLbl, { TextColor3       = col }, TI_FAST)
+                return self
+            end
+            function obj:Pulse()
+                Tween(valueLbl, { TextColor3 = Color3.fromRGB(255,255,255) }, TI_FAST)
+                task.delay(0.35, function()
+                    if valueLbl and valueLbl.Parent then
+                        Tween(valueLbl, { TextColor3 = accentCol }, TI_MID)
+                    end
+                end)
+                return self
+            end
+            ApplyMixin(obj, row, nameLbl, descLbl)
+            return obj
+        end
+
+        -- ════════════════════════════════════════════════════════════════════
+        --  TABLE  (data grid with column headers)
+        --  Reusable for: argument inspection, player stats, remote history,
+        --               inventory tables, leaderboards, key-value displays.
+        --
+        --  USAGE
+        --  local tbl = Tab:AddTable({
+        --      Name    = "Calls",
+        --      Height  = 180,
+        --      Columns = { "Remote", "Args", "Time" },
+        --      Widths  = { 0.5, 0.3, 0.2 },
+        --  })
+        --  local idx = tbl:AddRow({ "FireBullet", "nil", "12:04:01" })
+        --  tbl:SetRow(idx, { "FireBullet", "Vector3", "12:04:02" })
+        --  tbl:RemoveRow(idx)
+        --  tbl:Clear()
+        -- ════════════════════════════════════════════════════════════════════
+        function Tab:AddTable(tc)
+            tc = tc or {}
+            self._order = self._order + 1
+            local parent   = self._currentGroup or self._content
+            local tblH     = tc.Height  or 180
+            local cols     = tc.Columns or {}
+            local widths   = tc.Widths  or {}
+            local colCount = math.max(#cols, 1)
+            local rowH     = 24
+            local colHdrH  = 26
+            local pnlHdrH  = 28
+
+            local totalW = 0
+            for i = 1, colCount do totalW = totalW + (widths[i] or 1) end
+            local nw = {}
+            for i = 1, colCount do nw[i] = (widths[i] or 1) / totalW end
+
+            local wrapper = Create("Frame", {
+                Name             = "Row_" .. self._order,
+                Size             = UDim2.new(1, 0, 0, tblH + pnlHdrH + colHdrH),
+                BackgroundColor3 = Theme.ContentBg,
+                BorderSizePixel  = 0,
+                LayoutOrder      = self._order,
+                ZIndex           = Z.Content,
+                Parent           = parent,
+            })
+            Round(wrapper, 8)
+            Stroke(wrapper, Theme.Border, 1)
+
+            local pHdr = Create("Frame", {
+                Size             = UDim2.new(1, 0, 0, pnlHdrH),
+                BackgroundColor3 = Theme.TitleBarBg,
+                BorderSizePixel  = 0,
+                ZIndex           = Z.Content + 1,
+                Parent           = wrapper,
+            })
+            Create("UICorner", { CornerRadius = UDim.new(0, 8), Parent = pHdr })
+            Create("Frame", {
+                Size             = UDim2.new(1, 0, 0.5, 0),
+                Position         = UDim2.new(0, 0, 0.5, 0),
+                BackgroundColor3 = Theme.TitleBarBg,
+                BorderSizePixel  = 0,
+                ZIndex           = Z.Content + 1,
+                Parent           = pHdr,
+            })
+            Create("TextLabel", {
+                Size           = UDim2.new(1, -12, 1, 0),
+                Position       = UDim2.new(0, 10, 0, 0),
+                BackgroundTransparency = 1,
+                Text           = (tc.Name or "Table"):upper(),
+                TextColor3     = Theme.SubtitleText,
+                TextSize       = 10,
+                Font           = Enum.Font.GothamBold,
+                TextXAlignment = Enum.TextXAlignment.Left,
+                ZIndex         = Z.Content + 2,
+                Parent         = pHdr,
+            })
+            Create("Frame", {
+                Size             = UDim2.new(1, 0, 0, 1),
+                Position         = UDim2.new(0, 0, 1, -1),
+                BackgroundColor3 = Theme.Separator,
+                BorderSizePixel  = 0,
+                ZIndex           = Z.Content + 2,
+                Parent           = pHdr,
+            })
+
+            local colHdr = Create("Frame", {
+                Size             = UDim2.new(1, 0, 0, colHdrH),
+                Position         = UDim2.new(0, 0, 0, pnlHdrH),
+                BackgroundColor3 = Theme.RowBg,
+                BorderSizePixel  = 0,
+                ZIndex           = Z.Content + 1,
+                Parent           = wrapper,
+            })
+            Create("Frame", {
+                Size             = UDim2.new(1, 0, 0, 1),
+                Position         = UDim2.new(0, 0, 1, -1),
+                BackgroundColor3 = Theme.Separator,
+                BorderSizePixel  = 0,
+                ZIndex           = Z.Content + 2,
+                Parent           = colHdr,
+            })
+            local xAcc = 0
+            for i, cname in ipairs(cols) do
+                Create("TextLabel", {
+                    Size                  = UDim2.new(nw[i], -4, 1, 0),
+                    Position              = UDim2.new(xAcc, 6, 0, 0),
+                    BackgroundTransparency = 1,
+                    Text                  = cname,
+                    TextColor3            = Theme.SubtitleText,
+                    TextSize              = 10,
+                    Font                  = Enum.Font.GothamBold,
+                    TextXAlignment        = Enum.TextXAlignment.Left,
+                    ZIndex                = Z.Content + 2,
+                    Parent                = colHdr,
+                })
+                xAcc = xAcc + nw[i]
+            end
+
+            local dataHost = Create("Frame", {
+                Size             = UDim2.new(1, 0, 0, tblH),
+                Position         = UDim2.new(0, 0, 0, pnlHdrH + colHdrH),
+                ClipsDescendants = true,
+                BackgroundTransparency = 1,
+                BorderSizePixel  = 0,
+                ZIndex           = Z.Content,
+                Parent           = wrapper,
+            })
+            local scroll = Create("ScrollingFrame", {
+                Size                 = UDim2.new(1, 0, 1, 0),
+                BackgroundTransparency = 1,
+                ScrollBarThickness   = 3,
+                ScrollBarImageColor3 = Theme.ScrollThumb,
+                CanvasSize           = UDim2.new(0, 0, 0, 0),
+                AutomaticCanvasSize  = Enum.AutomaticSize.Y,
+                BorderSizePixel      = 0,
+                ZIndex               = Z.Content,
+                Parent               = dataHost,
+            })
+            local dataContent = Create("Frame", {
+                Size          = UDim2.new(1, 0, 0, 0),
+                AutomaticSize = Enum.AutomaticSize.Y,
+                BackgroundTransparency = 1,
+                ZIndex        = Z.Content + 1,
+                Parent        = scroll,
+            })
+            ListLayout(dataContent, Enum.FillDirection.Vertical, 0)
+
+            local dataRows = {}
+            local rowObjs  = {}
+            local altBg    = Color3.fromRGB(28, 28, 32)
+
+            local function MakeDataRow(cells, idx)
+                local r = Create("Frame", {
+                    Size             = UDim2.new(1, 0, 0, rowH),
+                    BackgroundColor3 = idx % 2 == 0 and altBg or Color3.fromRGB(22,22,26),
+                    BorderSizePixel  = 0,
+                    ZIndex           = Z.Content + 1,
+                    Parent           = dataContent,
+                })
+                Create("Frame", {
+                    Size             = UDim2.new(1, 0, 0, 1),
+                    Position         = UDim2.new(0, 0, 1, -1),
+                    BackgroundColor3 = Theme.Separator,
+                    BorderSizePixel  = 0,
+                    ZIndex           = Z.Content + 2,
+                    Parent           = r,
+                })
+                local xAcc2 = 0
+                local cellLbls = {}
+                for i = 1, colCount do
+                    local lbl = Create("TextLabel", {
+                        Size                  = UDim2.new(nw[i], -4, 1, 0),
+                        Position              = UDim2.new(xAcc2, 6, 0, 0),
+                        BackgroundTransparency = 1,
+                        Text                  = tostring(cells[i] or ""),
+                        TextColor3            = Theme.LabelText,
+                        TextSize              = 11,
+                        Font                  = Enum.Font.Gotham,
+                        TextXAlignment        = Enum.TextXAlignment.Left,
+                        TextTruncate          = Enum.TextTruncate.AtEnd,
+                        ZIndex                = Z.Content + 2,
+                        Parent                = r,
+                    })
+                    cellLbls[i] = lbl
+                    xAcc2 = xAcc2 + nw[i]
+                end
+                return r, cellLbls
+            end
+
+            local tblObj = {}
+            function tblObj:AddRow(cells)
+                local idx = #dataRows + 1
+                local r, lbls = MakeDataRow(cells, idx)
+                table.insert(dataRows, r)
+                table.insert(rowObjs, lbls)
+                return idx
+            end
+            function tblObj:SetRow(idx, cells)
+                local lbls = rowObjs[idx]
+                if not lbls then return self end
+                for i, lbl in ipairs(lbls) do lbl.Text = tostring(cells[i] or "") end
+                return self
+            end
+            function tblObj:RemoveRow(idx)
+                local r = dataRows[idx]
+                if r and r.Parent then r:Destroy() end
+                table.remove(dataRows, idx); table.remove(rowObjs, idx)
+                return self
+            end
+            function tblObj:Clear()
+                for _, r in ipairs(dataRows) do if r and r.Parent then r:Destroy() end end
+                dataRows = {}; rowObjs = {}
+                return self
+            end
+            function tblObj:GetRowCount() return #dataRows end
+            function tblObj:Show()     wrapper.Visible = true  end
+            function tblObj:Hide()     wrapper.Visible = false end
+            function tblObj:GetFrame() return wrapper end
+            return tblObj
+        end
+
+        -- ════════════════════════════════════════════════════════════════════
+        --  CHIP GROUP  (single / multi-select pill buttons)
+        --  Reusable for: category filters, tag selectors, mode pickers,
+        --               type filters, multi-option toggles, etc.
+        --
+        --  USAGE
+        --  local chips = Tab:AddChipGroup({
+        --      Name     = "Filter",
+        --      Options  = { "All", "RemoteEvent", "RemoteFunction" },
+        --      Default  = "All",
+        --      Multi    = false,
+        --      Callback = function(selected) end,
+        --  })
+        --  chips:Set("RemoteEvent")
+        --  chips:Get()             -- returns table of selected values
+        --  chips:IsSelected("All") -- boolean
+        -- ════════════════════════════════════════════════════════════════════
+        function Tab:AddChipGroup(cc)
+            cc = cc or {}
+            self._order = self._order + 1
+            local parent   = self._currentGroup or self._content
+            local opts     = cc.Options  or {}
+            local multi    = cc.Multi    == true
+            local cb       = cc.Callback or function() end
+            local selected = {}
+
+            if type(cc.Default) == "table" then
+                for _, v in ipairs(cc.Default) do selected[v] = true end
+            elseif type(cc.Default) == "string" then
+                selected[cc.Default] = true
+            elseif not multi and opts[1] then
+                selected[opts[1]] = true
+            end
+
+            local row = Create("Frame", {
+                Name             = "Row_" .. self._order,
+                Size             = UDim2.new(1, 0, 0, 40),
+                BackgroundColor3 = Theme.RowBg,
+                BorderSizePixel  = 0,
+                LayoutOrder      = self._order,
+                ZIndex           = Z.Content,
+                Parent           = parent,
+            })
+            Round(row, 8)
+            Stroke(row, Theme.Border, 1)
+
+            if cc.Name and cc.Name ~= "" then
+                Create("TextLabel", {
+                    Size                  = UDim2.new(0, 110, 1, 0),
+                    Position              = UDim2.new(0, 12, 0, 0),
+                    BackgroundTransparency = 1,
+                    Text                  = cc.Name,
+                    TextColor3            = Theme.LabelText,
+                    TextSize              = 13,
+                    Font                  = Enum.Font.GothamSemibold,
+                    TextXAlignment        = Enum.TextXAlignment.Left,
+                    ZIndex                = Z.Content + 2,
+                    Parent                = row,
+                })
+            end
+
+            local chipArea = Create("Frame", {
+                Size             = UDim2.new(0.62, 0, 1, -10),
+                Position         = UDim2.new(0.36, 0, 0.5, 0),
+                AnchorPoint      = Vector2.new(0, 0.5),
+                BackgroundTransparency = 1,
+                ZIndex           = Z.Content + 2,
+                Parent           = row,
+            })
+            ListLayout(chipArea, Enum.FillDirection.Horizontal, 5)
+
+            local chipBtns = {}
+            local function Redraw()
+                for v, btn in pairs(chipBtns) do
+                    local on = selected[v] == true
+                    Tween(btn, { BackgroundColor3 = on and Theme.Accent or Theme.InputBg }, TI_FAST)
+                    btn.TextColor3 = on and Color3.fromRGB(255,255,255) or Theme.ValueText
+                end
+            end
+
+            for _, opt in ipairs(opts) do
+                local lbl = tostring(opt)
+                local w   = math.max(#lbl * 7 + 18, 40)
+                local chip = Create("TextButton", {
+                    Size             = UDim2.new(0, w, 1, -2),
+                    BackgroundColor3 = selected[opt] and Theme.Accent or Theme.InputBg,
+                    Text             = lbl,
+                    TextColor3       = selected[opt] and Color3.fromRGB(255,255,255) or Theme.ValueText,
+                    TextSize         = 11,
+                    Font             = Enum.Font.GothamSemibold,
+                    AutoButtonColor  = false,
+                    BorderSizePixel  = 0,
+                    ZIndex           = Z.Content + 3,
+                    Parent           = chipArea,
+                })
+                Round(chip, 10)
+                chipBtns[opt] = chip
+                chip.MouseButton1Click:Connect(function()
+                    if multi then
+                        selected[opt] = selected[opt] and nil or true
+                    else
+                        selected = {}
+                        selected[opt] = true
+                    end
+                    Redraw()
+                    local out = {}
+                    for v in pairs(selected) do out[#out+1] = v end
+                    SafeCall(cb, out)
+                end)
+            end
+
+            local obj = { Flag = cc.Flag }
+            function obj:Set(vals)
+                selected = {}
+                if type(vals) == "table" then
+                    for _, v in ipairs(vals) do selected[v] = true end
+                elseif type(vals) == "string" then
+                    selected[vals] = true
+                end
+                Redraw(); return self
+            end
+            function obj:Get()
+                local out = {}
+                for v in pairs(selected) do out[#out+1] = v end
+                return out
+            end
+            function obj:IsSelected(v) return selected[v] == true end
+            function obj:Show() row.Visible = true  end
+            function obj:Hide() row.Visible = false end
+            return obj
+        end
+
+        -- ════════════════════════════════════════════════════════════════════
+        --  ALERT  (inline status banner)
+        --  Reusable for: info/warning/error notices, status lines, tips.
+        --  Types: "info" | "warn" | "error" | "success"
+        --
+        --  USAGE
+        --  local alert = Tab:AddAlert({
+        --      Type = "info",
+        --      Text = "Listening for remotes...",
+        --      Icon = "i",
+        --  })
+        --  alert:Set("Done!", "success")
+        --  alert:SetType("error")
+        --  alert:Get()   alert:Show()   alert:Hide()
+        -- ════════════════════════════════════════════════════════════════════
+        function Tab:AddAlert(ac)
+            ac = ac or {}
+            self._order = self._order + 1
+            local parent = self._currentGroup or self._content
+            local ALERT_COLORS = {
+                info    = { bg=Color3.fromRGB(10,40,80),  stripe=Theme.Accent,                  text=Color3.fromRGB(130,190,255) },
+                warn    = { bg=Color3.fromRGB(60,40,0),   stripe=Color3.fromRGB(255,189,46),     text=Color3.fromRGB(255,200,80)  },
+                error   = { bg=Color3.fromRGB(70,14,14),  stripe=Color3.fromRGB(255,69,58),      text=Color3.fromRGB(255,120,110) },
+                success = { bg=Color3.fromRGB(8,50,24),   stripe=Color3.fromRGB(48,209,88),      text=Color3.fromRGB(80,220,120)  },
+            }
+            local function GetColors(t) return ALERT_COLORS[t] or ALERT_COLORS.info end
+            local c0 = GetColors(ac.Type or "info")
+
+            local alertFrame = Create("Frame", {
+                Name             = "Row_" .. self._order,
+                Size             = UDim2.new(1, 0, 0, 38),
+                BackgroundColor3 = c0.bg,
+                BorderSizePixel  = 0,
+                LayoutOrder      = self._order,
+                ZIndex           = Z.Content,
+                Parent           = parent,
+            })
+            Round(alertFrame, 8)
+            local stripeBar = Create("Frame", {
+                Size             = UDim2.new(0, 3, 0.65, 0),
+                Position         = UDim2.new(0, 8, 0.5, 0),
+                AnchorPoint      = Vector2.new(0, 0.5),
+                BackgroundColor3 = c0.stripe,
+                BorderSizePixel  = 0,
+                ZIndex           = Z.Content + 1,
+                Parent           = alertFrame,
+            })
+            Round(stripeBar, 2)
+
+            local iconLbl, textX = nil, 18
+            if ac.Icon and ac.Icon ~= "" then
+                iconLbl = Create("TextLabel", {
+                    Size                  = UDim2.new(0, 18, 1, 0),
+                    Position              = UDim2.new(0, 18, 0, 0),
+                    BackgroundTransparency = 1,
+                    Text                  = ac.Icon,
+                    TextColor3            = c0.stripe,
+                    TextSize              = 14,
+                    Font                  = Enum.Font.Gotham,
+                    ZIndex                = Z.Content + 2,
+                    Parent                = alertFrame,
+                })
+                textX = 40
+            end
+            local msgLbl = Create("TextLabel", {
+                Size                  = UDim2.new(1, -(textX + 16), 1, 0),
+                Position              = UDim2.new(0, textX, 0, 0),
+                BackgroundTransparency = 1,
+                Text                  = tostring(ac.Text or ""),
+                TextColor3            = c0.text,
+                TextSize              = 12,
+                Font                  = Enum.Font.GothamSemibold,
+                TextXAlignment        = Enum.TextXAlignment.Left,
+                TextWrapped           = true,
+                ZIndex                = Z.Content + 2,
+                Parent                = alertFrame,
+            })
+            local obj = {}
+            function obj:Set(text, alertType)
+                msgLbl.Text = tostring(text or "")
+                if alertType then self:SetType(alertType) end
+                return self
+            end
+            function obj:SetType(t)
+                local c = GetColors(t)
+                Tween(alertFrame, { BackgroundColor3 = c.bg     }, TI_MID)
+                Tween(stripeBar,  { BackgroundColor3 = c.stripe }, TI_MID)
+                Tween(msgLbl,     { TextColor3       = c.text   }, TI_MID)
+                if iconLbl then Tween(iconLbl, { TextColor3 = c.stripe }, TI_MID) end
+                return self
+            end
+            function obj:Get()     return msgLbl.Text end
+            function obj:Show()    alertFrame.Visible = true;  return self end
+            function obj:Hide()    alertFrame.Visible = false; return self end
+            function obj:Destroy() pcall(function() alertFrame:Destroy() end) end
+            return obj
+        end
+
+        -- ════════════════════════════════════════════════════════════════════
+        --  NUMBER INPUT  (+/- stepper with scroll-wheel and range clamping)
+        --  Reusable for: numeric settings, delays, counts, intervals,
+        --               fire counts, page offsets, any integer/float entry.
+        --
+        --  USAGE
+        --  local num = Tab:AddNumberInput({
+        --      Name     = "Fire Count",
+        --      Default  = 1,
+        --      Min      = 1,
+        --      Max      = 100,
+        --      Step     = 1,
+        --      Flag     = "fireCount",
+        --      Callback = function(v) print(v) end,
+        --  })
+        --  num:Set(5)     num:Get()
+        --  num:SetRange(0, 999)  num:SetStep(5)
+        --  num:Enable()  num:Disable()
+        -- ════════════════════════════════════════════════════════════════════
+        function Tab:AddNumberInput(nc)
+            nc = nc or {}
+            local minV     = nc.Min      or -math.huge
+            local maxV     = nc.Max      or  math.huge
+            local step     = nc.Step     or 1
+            local cb       = nc.Callback or function() end
+            local val      = math.clamp(nc.Default or 0, minV, maxV)
+            local disabled = false
+
+            local row     = MkRow(self)
+            local nameLbl, descLbl = RowLabels(row, nc.Name, nc.Description)
+
+            local ctrlW = 130
+            local bg = Create("Frame", {
+                Size             = UDim2.new(0, ctrlW, 0, 28),
+                Position         = UDim2.new(1, -(ctrlW + 18), 0.5, -14),
+                BackgroundColor3 = Theme.InputBg,
+                BorderSizePixel  = 0,
+                ZIndex           = Z.Content + 2,
+                Parent           = row,
+            })
+            Round(bg, 8)
+            Stroke(bg, Theme.Border, 1)
+
+            local function SideBtn(text, xScale, xOffset)
+                local btn = Create("TextButton", {
+                    Size             = UDim2.new(0, 28, 1, 0),
+                    Position         = UDim2.new(xScale, xOffset, 0, 0),
+                    BackgroundColor3 = Theme.RowHover,
+                    Text             = text,
+                    TextColor3       = Theme.LabelText,
+                    TextSize         = 16,
+                    Font             = Enum.Font.GothamBold,
+                    AutoButtonColor  = false,
+                    BorderSizePixel  = 0,
+                    ZIndex           = Z.Content + 3,
+                    Parent           = bg,
+                })
+                Round(btn, 7)
+                btn.MouseEnter:Connect(function() Tween(btn, { BackgroundColor3 = Theme.RowBg    }, TI_FAST) end)
+                btn.MouseLeave:Connect(function() Tween(btn, { BackgroundColor3 = Theme.RowHover }, TI_FAST) end)
+                return btn
+            end
+            local minusBtn = SideBtn("-", 0, 0)
+            local plusBtn  = SideBtn("+", 1, -28)
+
+            local numBox = Create("TextBox", {
+                Size                  = UDim2.new(1, -56, 1, 0),
+                Position              = UDim2.new(0, 28, 0, 0),
+                BackgroundTransparency = 1,
+                Text                  = tostring(val),
+                TextColor3            = Theme.LabelText,
+                TextSize              = 13,
+                Font                  = Enum.Font.GothamBold,
+                TextXAlignment        = Enum.TextXAlignment.Center,
+                ClearTextOnFocus      = false,
+                ZIndex                = Z.Content + 3,
+                Parent                = bg,
+            })
+
+            local function ApplyVal(v, silent)
+                if disabled then return end
+                local n = math.floor((tonumber(v) or val) / step + 0.5) * step
+                n = math.clamp(n, minV, maxV)
+                val = n
+                numBox.Text = tostring(val)
+                State.Set(nc.Flag, val)
+                if not silent then SafeCall(cb, val) end
+            end
+
+            minusBtn.MouseButton1Click:Connect(function() ApplyVal(val - step) end)
+            plusBtn.MouseButton1Click:Connect(function()  ApplyVal(val + step) end)
+            numBox.FocusLost:Connect(function() ApplyVal(numBox.Text) end)
+            numBox.MouseWheelForward:Connect(function()  ApplyVal(val + step) end)
+            numBox.MouseWheelBackward:Connect(function() ApplyVal(val - step) end)
+
+            local obj = { Flag = nc.Flag }
+            function obj:Set(v, silent) ApplyVal(v, silent) end
+            function obj:Get()          return val end
+            function obj:SetMin(m)      minV = m; ApplyVal(val, true) end
+            function obj:SetMax(m)      maxV = m; ApplyVal(val, true) end
+            function obj:SetRange(mn, mx) minV = mn; maxV = mx; ApplyVal(val, true) end
+            function obj:SetStep(s)     step = math.abs(s or 1) end
+            function obj:Enable()
+                disabled = false
+                numBox.TextEditable = true
+                Tween(bg, { BackgroundTransparency = 0 }, TI_FAST)
+            end
+            function obj:Disable()
+                disabled = true
+                numBox.TextEditable = false
+                Tween(bg, { BackgroundTransparency = 0.5 }, TI_FAST)
+            end
+            ApplyMixin(obj, row, nameLbl, descLbl)
+            Win:RegisterComponent(nc.Flag, obj)
+            Registry.Register(nc.Flag,
+                function() return val end,
+                function(v) ApplyVal(v, true) end
+            )
+            if nc.Flag then State.Set(nc.Flag, val) end
+            return obj
+        end
+
 
         -- ════════════════════════════════════════════════════════════════════
         --  DIVIDER
@@ -4770,105 +6019,6 @@ function CrispyLib.CreateWindow(cfg)
             return obj
         end
 
-        -- ════════════════════════════════════════════════════════════════════
-        --  PROGRESS BAR
-        -- ════════════════════════════════════════════════════════════════════
-        function Tab:AddProgressBar(pc)
-            pc = pc or {}
-            local val     = math.clamp(tonumber(pc.Default) or 0, 0, 1)
-            local cb      = pc.Callback or function() end
-            local row     = MkRow(self)
-            local nameLbl, descLbl = RowLabels(row, pc.Name, pc.Description)
-
-            local trackBg = Create("Frame", {
-                Size             = UDim2.new(0, 200, 0, 8),
-                Position         = UDim2.new(1, -220, 0.5, -4),
-                BackgroundColor3 = Theme.LoaderBarBg,
-                BorderSizePixel  = 0,
-                ZIndex           = Z.Content + 2,
-                Parent           = row,
-            }); Round(trackBg, 4)
-
-            local fill = Create("Frame", {
-                Size             = UDim2.new(val, 0, 1, 0),
-                BackgroundColor3 = pc.Color or Theme.Accent,
-                BorderSizePixel  = 0,
-                ZIndex           = Z.Content + 3,
-                Parent           = trackBg,
-            }); Round(fill, 4)
-
-            local pctLbl = Create("TextLabel", {
-                Size                  = UDim2.new(0, 36, 1, 0),
-                Position              = UDim2.new(1, -16, 0, 0),
-                AnchorPoint          = Vector2.new(1, 0),
-                BackgroundTransparency = 1,
-                Text                  = math.floor(val * 100) .. "%",
-                TextColor3            = Theme.ValueText,
-                TextSize              = 11,
-                Font                  = Enum.Font.GothamSemibold,
-                TextXAlignment        = Enum.TextXAlignment.Right,
-                ZIndex                = Z.Content + 4,
-                Parent                = trackBg,
-            })
-
-            local obj = { Flag = pc.Flag }
-            local _pulseToken = nil
-
-            local function ApplyVal(v, silent)
-                val = math.clamp(tonumber(v) or 0, 0, 1)
-                local prev = State.Get(pc.Flag)
-                Tween(fill, { Size = UDim2.new(val, 0, 1, 0) }, TI_MID)
-                pctLbl.Text = math.floor(val * 100) .. "%"
-                State.Set(pc.Flag, val)
-                if not silent then SafeCall(cb, val) end
-            end
-
-            function obj:Set(v, silent) ApplyVal(v, silent); return self end
-            function obj:Get() return val end
-            function obj:SetColor(col)
-                fill.BackgroundColor3 = col
-                return self
-            end
-            function obj:Animate(target, duration)
-                local ti = TweenInfo.new(duration or 1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-                local t = math.clamp(tonumber(target) or 0, 0, 1)
-                TweenService:Create(fill, ti, { Size = UDim2.new(t, 0, 1, 0) }):Play()
-                task.delay(duration or 1, function()
-                    val = t
-                    pctLbl.Text = math.floor(val * 100) .. "%"
-                end)
-                return self
-            end
-            function obj:Pulse()
-                if _pulseToken then _pulseToken.Alive = false end
-                _pulseToken = { Alive = true }
-                task.spawn(function()
-                    while _pulseToken.Alive do
-                        Tween(fill, { BackgroundColor3 = Theme.AccentHover },
-                            TweenInfo.new(0.6, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut))
-                        task.wait(0.7)
-                        if not _pulseToken.Alive then break end
-                        Tween(fill, { BackgroundColor3 = pc.Color or Theme.Accent },
-                            TweenInfo.new(0.6, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut))
-                        task.wait(0.7)
-                    end
-                end)
-                return self
-            end
-            function obj:StopPulse()
-                if _pulseToken then _pulseToken.Alive = false; _pulseToken = nil end
-                fill.BackgroundColor3 = pc.Color or Theme.Accent
-                return self
-            end
-
-            ApplyMixin(obj, row, nameLbl, descLbl)
-            if pc.Flag then
-                Win:RegisterComponent(pc.Flag, obj)
-                Registry.Register(pc.Flag, function() return val end, function(v) ApplyVal(v, true) end)
-                State.Set(pc.Flag, val)
-            end
-            return obj
-        end
 
         -- GroupEnd: exit the current section group so next rows are top-level
         function Tab:GroupEnd()
@@ -4929,7 +6079,6 @@ function CrispyLib.CreateWindow(cfg)
 
         return Tab
     end -- Win:AddTab
-
     return Win
 end -- CrispyLib.CreateWindow
 
