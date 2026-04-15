@@ -46,13 +46,19 @@
     bar:StopPulse()
 
     -- v2.3 new reusable components:
-    --  • Tab:AddScrollPanel(cfg)   — scrollable panel with expandable row items
-    --  • Tab:AddLogBox(cfg)        — auto-scrolling timestamped log console
-    --  • Tab:AddDataCard(cfg)      — live stat / counter display row
-    --  • Tab:AddTable(cfg)         — data grid with column headers + scrollable rows
-    --  • Tab:AddChipGroup(cfg)     — single/multi-select pill filter buttons
-    --  • Tab:AddAlert(cfg)         — inline info/warn/error/success status banner
-    --  • Tab:AddNumberInput(cfg)   — +/- stepper input with scroll-wheel support
+    --  • Tab:AddScrollPanel(cfg)     — scrollable panel with expandable row items
+    --  • Tab:AddLogBox(cfg)          — auto-scrolling timestamped log console
+    --  • Tab:AddDataCard(cfg)        — live stat / counter display row
+    --  • Tab:AddTable(cfg)           — data grid with column headers + scrollable rows
+    --  • Tab:AddChipGroup(cfg)       — single/multi-select pill filter buttons
+    --  • Tab:AddAlert(cfg)           — inline info/warn/error/success status banner
+    --  • Tab:AddNumberInput(cfg)     — +/- stepper input with scroll-wheel support
+
+    -- v2.4 new layout & display components:
+    --  • Tab:AddCodeView(cfg)        — line-numbered monospace code display panel
+    --  • Tab:AddSplitPanel(cfg)      — horizontal two-column split layout
+    --  • Tab:AddButtonGrid(cfg)      — N-column grid of named action buttons
+    --  • Tab:AddExpandableItem(cfg)  — collapsible row with badge + info + button grid
 
     -- v2.2 component dependency:
     local toggle = Tab:AddToggle({ Name = "Master", Default = true })
@@ -92,6 +98,26 @@
     -- :Enable() / :Disable()   :Show() / :Hide()
     -- :SetLabel(text)          (where applicable)
     -- :SetDescription(text)    (where applicable)
+
+    CHANGELOG v2 → v2.4
+    ───────────────────
+    LAYOUT & DISPLAY COMPONENTS
+    • Tab:AddCodeView(cfg)       — line-numbered monospace code viewer
+                                   :SetCode(s)  :Clear()  :GetCode()
+                                   :ScrollTop()  :ScrollBottom()
+                                   :Show()  :Hide()
+    • Tab:AddSplitPanel(cfg)     — horizontal two-column split panel
+                                   .Left / .Right (Frames to fill)
+                                   :SetLeftWidth(n)  :Show()  :Hide()
+    • Tab:AddButtonGrid(cfg)     — N-column action button grid
+                                   :AddButton({Label,Danger,Callback})
+                                   :SetEnabled(bool)  :Clear()
+    • Tab:AddExpandableItem(cfg) — collapsible row with badge + 2-col button grid
+                                   :SetName(s)  :SetSubtext(s)  :SetBadge(s,col)
+                                   :Select()  :Deselect()
+                                   :Expand()  :Collapse()  :Toggle()
+                                   :AddButton({Label,Danger,Callback})
+                                   :Remove()  :IsExpanded()
 
     CHANGELOG v2 → v2.3
     ───────────────────
@@ -5916,6 +5942,650 @@ function CrispyLib.CreateWindow(cfg)
         -- ════════════════════════════════════════════════════════════════════
         --  DIVIDER
         -- ════════════════════════════════════════════════════════════════════
+
+
+        -- ════════════════════════════════════════════════════════════════════
+        --  CODE VIEW  (line-numbered monospace code display)
+        --  Generic: remote spy, script viewers, diff display, log inspection.
+        --
+        --  USAGE
+        --  local cv = Tab:AddCodeView({
+        --      Name        = "Code",
+        --      Height      = 160,
+        --      LineNumbers = true,     -- default true
+        --      Monospace   = true,     -- RobotoMono when true
+        --      FontSize    = 11,
+        --      Placeholder = "-- no code",
+        --  })
+        --  cv:SetCode("local x = 1\nreturn x")
+        --  cv:Clear()
+        --  cv:GetCode()
+        --  cv:Show()  cv:Hide()
+        --  cv:ScrollTop()  cv:ScrollBottom()
+        -- ════════════════════════════════════════════════════════════════════
+        function Tab:AddCodeView(cfg)
+            cfg = cfg or {}
+            self._order = self._order + 1
+            local parent   = self._currentGroup or self._content
+            local viewH    = cfg.Height      or 160
+            local showLN   = cfg.LineNumbers ~= false
+            local mono     = cfg.Monospace   ~= false
+            local fontSize = cfg.FontSize    or 11
+            local font     = mono and Enum.Font.RobotoMono or Enum.Font.Gotham
+            local lineH    = fontSize + 5
+            local LN_W     = showLN and 28 or 0
+            local codeBg   = Color3.fromRGB(14, 14, 18)
+            local lineCol  = Color3.fromRGB(70, 70, 85)
+
+            local yOff = 0
+            local totalH = viewH
+            if cfg.Name then totalH = totalH + 28; yOff = 28 end
+
+            local wrapper = Create("Frame", {
+                Name             = "Row_" .. self._order,
+                Size             = UDim2.new(1, 0, 0, totalH),
+                BackgroundColor3 = Theme.ContentBg,
+                BorderSizePixel  = 0,
+                LayoutOrder      = self._order,
+                ZIndex           = Z.Content,
+                Parent           = parent,
+            })
+            Round(wrapper, 8)
+            Stroke(wrapper, Theme.Border, 1)
+
+            if cfg.Name then
+                local hdr = Create("Frame", {
+                    Size             = UDim2.new(1, 0, 0, 28),
+                    BackgroundColor3 = Theme.TitleBarBg,
+                    BorderSizePixel  = 0,
+                    ZIndex           = Z.Content + 1,
+                    Parent           = wrapper,
+                })
+                Round(hdr, 8)
+                Create("TextLabel", {
+                    Size                   = UDim2.new(1, -16, 1, 0),
+                    Position               = UDim2.new(0, 10, 0, 0),
+                    BackgroundTransparency = 1,
+                    Text                   = cfg.Name,
+                    TextColor3             = Theme.LabelText,
+                    TextSize               = 12,
+                    Font                   = Enum.Font.GothamSemibold,
+                    TextXAlignment         = Enum.TextXAlignment.Left,
+                    ZIndex                 = Z.Content + 2,
+                    Parent                 = hdr,
+                })
+            end
+
+            local codeArea = Create("Frame", {
+                Size             = UDim2.new(1, 0, 0, viewH),
+                Position         = UDim2.new(0, 0, 0, yOff),
+                BackgroundColor3 = codeBg,
+                BorderSizePixel  = 0,
+                ClipsDescendants = true,
+                ZIndex           = Z.Content + 1,
+                Parent           = wrapper,
+            })
+            if yOff == 0 then Round(codeArea, 8) end
+
+            local placeholder = Create("TextLabel", {
+                Size                   = UDim2.new(1, 0, 1, 0),
+                BackgroundTransparency = 1,
+                Text                   = cfg.Placeholder or "-- no code to display",
+                TextColor3             = Theme.DescText,
+                TextSize               = fontSize,
+                Font                   = font,
+                TextXAlignment         = Enum.TextXAlignment.Center,
+                ZIndex                 = Z.Content + 2,
+                Parent                 = codeArea,
+            })
+
+            local scrollF = Create("ScrollingFrame", {
+                Size                   = UDim2.new(1, 0, 1, 0),
+                BackgroundTransparency = 1,
+                ScrollBarThickness     = 3,
+                ScrollBarImageColor3   = Theme.ScrollThumb or Color3.fromRGB(80, 80, 95),
+                CanvasSize             = UDim2.new(0, 0, 0, 0),
+                AutomaticCanvasSize    = Enum.AutomaticSize.Y,
+                BorderSizePixel        = 0,
+                Visible                = false,
+                ZIndex                 = Z.Content + 2,
+                Parent                 = codeArea,
+            })
+            Create("UIPadding", {
+                PaddingTop = UDim.new(0, 6), PaddingBottom = UDim.new(0, 6),
+                PaddingLeft = UDim.new(0, 6), PaddingRight  = UDim.new(0, 6),
+                Parent = scrollF,
+            })
+            local inner = Create("Frame", {
+                Size          = UDim2.new(1, 0, 0, 0),
+                AutomaticSize = Enum.AutomaticSize.Y,
+                BackgroundTransparency = 1,
+                ZIndex        = Z.Content + 3,
+                Parent        = scrollF,
+            })
+            Create("UIListLayout", {
+                SortOrder = Enum.SortOrder.LayoutOrder,
+                Padding   = UDim.new(0, 0),
+                Parent    = inner,
+            })
+
+            local currentCode = ""
+            local function Render(code)
+                for _, c in ipairs(inner:GetChildren()) do
+                    if not c:IsA("UIListLayout") then c:Destroy() end
+                end
+                for i, ln in ipairs(code:split("
+")) do
+                    local row = Create("Frame", {
+                        Size = UDim2.new(1, 0, 0, lineH),
+                        BackgroundTransparency = 1,
+                        LayoutOrder = i,
+                        ZIndex = Z.Content + 3,
+                        Parent = inner,
+                    })
+                    if showLN then
+                        Create("TextLabel", {
+                            Size = UDim2.new(0, LN_W, 1, 0),
+                            BackgroundTransparency = 1,
+                            Text = tostring(i),
+                            TextColor3 = lineCol,
+                            TextSize = fontSize,
+                            Font = font,
+                            TextXAlignment = Enum.TextXAlignment.Right,
+                            ZIndex = Z.Content + 4,
+                            Parent = row,
+                        })
+                    end
+                    Create("TextLabel", {
+                        Size = UDim2.new(1, -(LN_W + 6), 1, 0),
+                        Position = UDim2.new(0, LN_W + 6, 0, 0),
+                        BackgroundTransparency = 1,
+                        Text = ln == "" and " " or ln,
+                        TextColor3 = Theme.LabelText,
+                        TextSize = fontSize,
+                        Font = font,
+                        TextXAlignment = Enum.TextXAlignment.Left,
+                        TextTruncate = Enum.TextTruncate.AtEnd,
+                        ZIndex = Z.Content + 4,
+                        Parent = row,
+                    })
+                end
+            end
+
+            local obj = {}
+            function obj:SetCode(code)
+                currentCode = tostring(code or "")
+                local hasCode = currentCode ~= ""
+                placeholder.Visible = not hasCode
+                scrollF.Visible     = hasCode
+                if hasCode then Render(currentCode) end
+                scrollF.CanvasPosition = Vector2.new(0, 0)
+                return self
+            end
+            function obj:Clear()         return self:SetCode("") end
+            function obj:GetCode()       return currentCode end
+            function obj:ScrollTop()     scrollF.CanvasPosition = Vector2.new(0, 0);   return self end
+            function obj:ScrollBottom()  scrollF.CanvasPosition = Vector2.new(0, 1e9); return self end
+            function obj:Show()          wrapper.Visible = true;  return self end
+            function obj:Hide()          wrapper.Visible = false; return self end
+            return obj
+        end
+
+
+        -- ════════════════════════════════════════════════════════════════════
+        --  SPLIT PANEL  (horizontal two-column layout)
+        --  Generic: list+detail, nav+content, spy list+code view, etc.
+        --
+        --  USAGE
+        --  local sp = Tab:AddSplitPanel({
+        --      Height    = 260,
+        --      LeftWidth = 180,
+        --  })
+        --  sp.Left   -- Frame (put your list/scroll inside)
+        --  sp.Right  -- Frame (put your detail/code view inside)
+        --  sp:SetLeftWidth(220)
+        --  sp:Show()  sp:Hide()
+        -- ════════════════════════════════════════════════════════════════════
+        function Tab:AddSplitPanel(cfg)
+            cfg = cfg or {}
+            self._order = self._order + 1
+            local parent = self._currentGroup or self._content
+            local totalH = cfg.Height    or 260
+            local leftW  = cfg.LeftWidth or 180
+
+            local wrapper = Create("Frame", {
+                Name             = "Row_" .. self._order,
+                Size             = UDim2.new(1, 0, 0, totalH),
+                BackgroundColor3 = cfg.Bg or Theme.ContentBg,
+                BorderSizePixel  = 0,
+                LayoutOrder      = self._order,
+                ZIndex           = Z.Content,
+                Parent           = parent,
+            })
+            Round(wrapper, 8)
+            Stroke(wrapper, Theme.Border, 1)
+
+            local leftFrame = Create("Frame", {
+                Size                   = UDim2.new(0, leftW, 1, 0),
+                BackgroundTransparency = 1,
+                BorderSizePixel        = 0,
+                ClipsDescendants       = true,
+                ZIndex                 = Z.Content + 1,
+                Parent                 = wrapper,
+            })
+            local divider = Create("Frame", {
+                Size             = UDim2.new(0, 1, 1, 0),
+                Position         = UDim2.new(0, leftW, 0, 0),
+                BackgroundColor3 = Theme.Separator,
+                BorderSizePixel  = 0,
+                ZIndex           = Z.Content + 1,
+                Parent           = wrapper,
+            })
+            local rightFrame = Create("Frame", {
+                Size             = UDim2.new(1, -(leftW + 1), 1, 0),
+                Position         = UDim2.new(0, leftW + 1, 0, 0),
+                BackgroundColor3 = cfg.RightBg or Color3.fromRGB(14, 14, 18),
+                BorderSizePixel  = 0,
+                ClipsDescendants = true,
+                ZIndex           = Z.Content + 1,
+                Parent           = wrapper,
+            })
+            Round(rightFrame, 8)
+
+            local obj = { Left = leftFrame, Right = rightFrame }
+            function obj:SetLeftWidth(w)
+                leftFrame.Size      = UDim2.new(0, w, 1, 0)
+                divider.Position    = UDim2.new(0, w, 0, 0)
+                rightFrame.Size     = UDim2.new(1, -(w + 1), 1, 0)
+                rightFrame.Position = UDim2.new(0, w + 1, 0, 0)
+                return self
+            end
+            function obj:Show()    wrapper.Visible = true;  return self end
+            function obj:Hide()    wrapper.Visible = false; return self end
+            function obj:Destroy() wrapper:Destroy() end
+            return obj
+        end
+
+
+        -- ════════════════════════════════════════════════════════════════════
+        --  BUTTON GRID  (N-column grid of named action buttons)
+        --  Generic: toolbars, command palettes, action panels, filter grids.
+        --
+        --  USAGE
+        --  local bg = Tab:AddButtonGrid({
+        --      Columns      = 3,
+        --      ButtonHeight = 28,
+        --      Buttons = {
+        --          { Label="Copy",   Callback=function() end },
+        --          { Label="Delete", Danger=true, Callback=function() end },
+        --          { Label="Run",    Callback=function() end },
+        --      },
+        --  })
+        --  bg:AddButton({ Label="New", Callback=fn })
+        --  bg:SetEnabled(false)
+        --  bg:Clear()
+        -- ════════════════════════════════════════════════════════════════════
+        function Tab:AddButtonGrid(cfg)
+            cfg = cfg or {}
+            self._order = self._order + 1
+            local parent  = self._currentGroup or self._content
+            local cols    = cfg.Columns      or 3
+            local btnH    = cfg.ButtonHeight or 28
+            local btnList = {}
+            local disabled = false
+
+            local NORM_BG  = Theme.InputBg  or Color3.fromRGB(38, 38, 46)
+            local NORM_HOV = Theme.RowHover or Color3.fromRGB(52, 52, 62)
+            local DANG_BG  = Color3.fromRGB(50, 16, 16)
+            local DANG_HOV = Color3.fromRGB(80, 22, 22)
+            local DANG_TXT = Color3.fromRGB(255, 100, 90)
+
+            local wrapper = Create("Frame", {
+                Name                   = "Row_" .. self._order,
+                Size                   = UDim2.new(1, 0, 0, 4),
+                BackgroundTransparency = 1,
+                BorderSizePixel        = 0,
+                LayoutOrder            = self._order,
+                ZIndex                 = Z.Content,
+                Parent                 = parent,
+            })
+            local grid = Create("UIGridLayout", {
+                CellSize            = UDim2.new(1/cols, cols > 1 and -4 or 0, 0, btnH),
+                CellPadding         = UDim2.new(0, 4, 0, 4),
+                FillDirection       = Enum.FillDirection.Horizontal,
+                HorizontalAlignment = Enum.HorizontalAlignment.Left,
+                VerticalAlignment   = Enum.VerticalAlignment.Top,
+                SortOrder           = Enum.SortOrder.LayoutOrder,
+                Parent              = wrapper,
+            })
+            grid:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+                wrapper.Size = UDim2.new(1, 0, 0, grid.AbsoluteContentSize.Y + 4)
+            end)
+
+            local obj = {}
+            function obj:AddButton(bc)
+                bc = bc or {}
+                local isDanger = bc.Danger or false
+                local b = Create("TextButton", {
+                    Size             = UDim2.new(1, 0, 1, 0),
+                    BackgroundColor3 = isDanger and DANG_BG or NORM_BG,
+                    Text             = bc.Label or "Button",
+                    TextColor3       = isDanger and DANG_TXT or Theme.LabelText,
+                    TextSize         = 11,
+                    Font             = Enum.Font.GothamSemibold,
+                    AutoButtonColor  = false,
+                    BorderSizePixel  = 0,
+                    LayoutOrder      = #btnList + 1,
+                    ZIndex           = Z.Content + 1,
+                    Parent           = wrapper,
+                })
+                Round(b, 6)
+                b.MouseEnter:Connect(function()
+                    if not disabled then
+                        Tween(b, { BackgroundColor3 = isDanger and DANG_HOV or NORM_HOV }, TI_FAST)
+                    end
+                end)
+                b.MouseLeave:Connect(function()
+                    Tween(b, { BackgroundColor3 = isDanger and DANG_BG or NORM_BG }, TI_FAST)
+                end)
+                b.MouseButton1Click:Connect(function()
+                    if not disabled and bc.Callback then bc.Callback() end
+                end)
+                local bobj = {}
+                function bobj:SetLabel(t) b.Text = t; return self end
+                function bobj:SetDanger(d)
+                    isDanger = d
+                    b.BackgroundColor3 = d and DANG_BG or NORM_BG
+                    b.TextColor3       = d and DANG_TXT or Theme.LabelText
+                    return self
+                end
+                function bobj:Destroy() b:Destroy() end
+                table.insert(btnList, bobj)
+                return bobj
+            end
+            function obj:SetEnabled(v)
+                disabled = not v
+                for _, c in ipairs(wrapper:GetChildren()) do
+                    if c:IsA("TextButton") then
+                        c.TextTransparency = v and 0 or 0.5
+                    end
+                end
+                return self
+            end
+            function obj:Clear()
+                for _, c in ipairs(wrapper:GetChildren()) do
+                    if c:IsA("TextButton") then c:Destroy() end
+                end
+                btnList = {}
+                return self
+            end
+            function obj:Show()    wrapper.Visible = true;  return self end
+            function obj:Hide()    wrapper.Visible = false; return self end
+
+            for _, bc in ipairs(cfg.Buttons or {}) do obj:AddButton(bc) end
+            return obj
+        end
+
+
+        -- ════════════════════════════════════════════════════════════════════
+        --  EXPANDABLE ITEM  (collapsible row: badge + name + button grid)
+        --  Generic: remote rows, player entries, inventory items, file tree.
+        --
+        --  USAGE  (inside a Tab or inside AddScrollPanel's content frame)
+        --  local item = Tab:AddExpandableItem({
+        --      Name       = "FireBullet",
+        --      Subtext    = "0 calls",
+        --      Badge      = "RE",
+        --      BadgeColor = Color3.fromRGB(10,132,255),
+        --      Columns    = 2,      -- columns in the expanded button grid
+        --      RowHeight  = 42,
+        --      Buttons    = {
+        --          { Label="Fire",      Callback=function() end },
+        --          { Label="Copy path", Callback=function() end },
+        --          { Label="Block",     Danger=true, Callback=function() end },
+        --          { Label="Remove",    Danger=true, Callback=function() end },
+        --      },
+        --      OnSelect = function(item) end,  -- called when header clicked
+        --  })
+        --  item:SetName("NewName")
+        --  item:SetSubtext("12 calls")
+        --  item:SetBadge("RF", Color3.fromRGB(255,159,10))
+        --  item:Select()    item:Deselect()
+        --  item:Expand()    item:Collapse()   item:Toggle()
+        --  item:AddButton({ Label="Spy", Callback=fn })
+        --  item:Remove()
+        -- ════════════════════════════════════════════════════════════════════
+        function Tab:AddExpandableItem(cfg)
+            cfg = cfg or {}
+            self._order = self._order + 1
+            local parent  = self._currentGroup or self._content
+            local btnCols = cfg.Columns   or 2
+            local btnH    = cfg.ButtonH   or 24
+            local ROW_H   = cfg.RowHeight or 42
+            local expanded = false
+            local selected = false
+
+            local SEL_BG  = Theme.Accent:Lerp(Color3.fromRGB(0,0,0), 0.65)
+            local NORM_BG = Theme.RowBg     or Color3.fromRGB(34, 34, 40)
+            local HOV_BG  = Theme.RowHover  or Color3.fromRGB(44, 44, 52)
+            local EXP_BG  = Theme.ContentBg or Color3.fromRGB(22, 22, 28)
+            local BTN_BG  = Theme.InputBg   or Color3.fromRGB(38, 38, 46)
+            local BTN_HV  = Theme.RowHover  or Color3.fromRGB(52, 52, 62)
+            local DNG_BG  = Color3.fromRGB(50,  16, 16)
+            local DNG_HV  = Color3.fromRGB(80,  22, 22)
+            local DNG_TX  = Color3.fromRGB(255, 100, 90)
+
+            local wrapper = Create("Frame", {
+                Name                   = "Row_" .. self._order,
+                Size                   = UDim2.new(1, 0, 0, ROW_H),
+                BackgroundTransparency = 1,
+                BorderSizePixel        = 0,
+                LayoutOrder            = self._order,
+                ZIndex                 = Z.Content,
+                Parent                 = parent,
+            })
+            local header = Create("TextButton", {
+                Size             = UDim2.new(1, 0, 0, ROW_H),
+                BackgroundColor3 = NORM_BG,
+                Text             = "",
+                AutoButtonColor  = false,
+                BorderSizePixel  = 0,
+                ZIndex           = Z.Content + 1,
+                Parent           = wrapper,
+            })
+            Round(header, 6)
+
+            -- badge
+            local badgeCol = cfg.BadgeColor or Theme.Accent
+            local badgeTxt = cfg.Badge      or ""
+            local pillW    = math.max(#badgeTxt * 6 + 10, 22)
+            local pill = Create("TextLabel", {
+                Size             = UDim2.new(0, pillW, 0, 13),
+                Position         = UDim2.new(0, 6, 0.5, -7),
+                BackgroundColor3 = badgeCol,
+                Text             = badgeTxt,
+                TextColor3       = Color3.new(1,1,1),
+                TextSize         = 8,
+                Font             = Enum.Font.GothamBold,
+                TextXAlignment   = Enum.TextXAlignment.Center,
+                ZIndex           = Z.Content + 2,
+                Parent           = header,
+            })
+            Round(pill, 3)
+            local BW = pillW + 10
+
+            local nameLbl = Create("TextLabel", {
+                Size                   = UDim2.new(1, -(BW + 26), 0, 16),
+                Position               = UDim2.new(0, BW, 0, 6),
+                BackgroundTransparency = 1,
+                Text                   = cfg.Name or "",
+                TextColor3             = Theme.LabelText,
+                TextSize               = 11,
+                Font                   = Enum.Font.GothamSemibold,
+                TextXAlignment         = Enum.TextXAlignment.Left,
+                TextTruncate           = Enum.TextTruncate.AtEnd,
+                ZIndex                 = Z.Content + 2,
+                Parent                 = header,
+            })
+            local subLbl = Create("TextLabel", {
+                Size                   = UDim2.new(1, -(BW + 26), 0, 12),
+                Position               = UDim2.new(0, BW, 0, 24),
+                BackgroundTransparency = 1,
+                Text                   = cfg.Subtext or "",
+                TextColor3             = Theme.DescText,
+                TextSize               = 9,
+                Font                   = Enum.Font.Gotham,
+                TextXAlignment         = Enum.TextXAlignment.Left,
+                TextTruncate           = Enum.TextTruncate.AtEnd,
+                ZIndex                 = Z.Content + 2,
+                Parent                 = header,
+            })
+            local arrow = Create("TextLabel", {
+                Size                   = UDim2.new(0, 18, 0, 18),
+                Position               = UDim2.new(1, -22, 0.5, -9),
+                BackgroundTransparency = 1,
+                Text                   = "▸",
+                TextColor3             = Theme.DescText,
+                TextSize               = 11,
+                Font                   = Enum.Font.GothamBold,
+                ZIndex                 = Z.Content + 2,
+                Parent                 = header,
+            })
+
+            local expandArea = Create("Frame", {
+                Size             = UDim2.new(1, 0, 0, 0),
+                Position         = UDim2.new(0, 0, 0, ROW_H + 2),
+                BackgroundColor3 = EXP_BG,
+                BorderSizePixel  = 0,
+                Visible          = false,
+                ZIndex           = Z.Content + 1,
+                Parent           = wrapper,
+            })
+            Round(expandArea, 6)
+            Create("UIPadding", {
+                PaddingTop = UDim.new(0,4), PaddingBottom = UDim.new(0,4),
+                PaddingLeft = UDim.new(0,5), PaddingRight  = UDim.new(0,5),
+                Parent = expandArea,
+            })
+            local gridLayout = Create("UIGridLayout", {
+                CellSize            = UDim2.new(1/btnCols, btnCols > 1 and -3 or 0, 0, btnH),
+                CellPadding         = UDim2.new(0, 4, 0, 4),
+                FillDirection       = Enum.FillDirection.Horizontal,
+                HorizontalAlignment = Enum.HorizontalAlignment.Left,
+                SortOrder           = Enum.SortOrder.LayoutOrder,
+                Parent              = expandArea,
+            })
+            local function RefreshHeight()
+                local count = 0
+                for _, c in ipairs(expandArea:GetChildren()) do
+                    if c:IsA("TextButton") then count = count + 1 end
+                end
+                local rows = math.max(1, math.ceil(count / btnCols))
+                local h = rows * btnH + math.max(0, rows - 1) * 4 + 10
+                expandArea.Size = UDim2.new(1, 0, 0, h)
+                wrapper.Size    = UDim2.new(1, 0, 0, expanded and (ROW_H + 2 + h) or ROW_H)
+            end
+            gridLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(RefreshHeight)
+
+            local btnOrder = 0
+            local obj = {}
+
+            function obj:AddButton(bc)
+                bc = bc or {}
+                btnOrder = btnOrder + 1
+                local isDanger = bc.Danger or false
+                local b = Create("TextButton", {
+                    Size             = UDim2.new(1, 0, 1, 0),
+                    BackgroundColor3 = isDanger and DNG_BG or BTN_BG,
+                    Text             = bc.Label or "",
+                    TextColor3       = isDanger and DNG_TX or Theme.LabelText,
+                    TextSize         = 10,
+                    Font             = Enum.Font.GothamSemibold,
+                    AutoButtonColor  = false,
+                    BorderSizePixel  = 0,
+                    LayoutOrder      = btnOrder,
+                    ZIndex           = Z.Content + 3,
+                    Parent           = expandArea,
+                })
+                Round(b, 5)
+                b.MouseEnter:Connect(function()
+                    Tween(b, { BackgroundColor3 = isDanger and DNG_HV or BTN_HV }, TI_FAST)
+                end)
+                b.MouseLeave:Connect(function()
+                    Tween(b, { BackgroundColor3 = isDanger and DNG_BG or BTN_BG }, TI_FAST)
+                end)
+                b.MouseButton1Click:Connect(function()
+                    if bc.Callback then bc.Callback() end
+                end)
+                local bobj = {}
+                function bobj:SetLabel(t)  b.Text = t; return self end
+                function bobj:SetDanger(d)
+                    isDanger = d
+                    b.BackgroundColor3 = d and DNG_BG or BTN_BG
+                    b.TextColor3       = d and DNG_TX or Theme.LabelText
+                    return self
+                end
+                function bobj:Destroy() b:Destroy() end
+                return bobj
+            end
+
+            function obj:SetName(t)    nameLbl.Text = t;    return self end
+            function obj:SetSubtext(t) subLbl.Text  = t;    return self end
+            function obj:SetBadge(t, col)
+                pill.Text = t
+                if col then Tween(pill, { BackgroundColor3 = col }, TI_FAST) end
+                return self
+            end
+            function obj:Select()
+                selected = true
+                Tween(header,  { BackgroundColor3 = SEL_BG       }, TI_FAST)
+                Tween(nameLbl, { TextColor3       = Theme.Accent  }, TI_FAST)
+                return self
+            end
+            function obj:Deselect()
+                selected = false
+                Tween(header,  { BackgroundColor3 = NORM_BG          }, TI_FAST)
+                Tween(nameLbl, { TextColor3       = Theme.LabelText   }, TI_FAST)
+                return self
+            end
+            function obj:Expand()
+                if expanded then return self end
+                expanded = true; arrow.Text = "▾"
+                expandArea.Visible = true
+                RefreshHeight()
+                return self
+            end
+            function obj:Collapse()
+                if not expanded then return self end
+                expanded = false; arrow.Text = "▸"
+                expandArea.Visible = false
+                wrapper.Size = UDim2.new(1, 0, 0, ROW_H)
+                return self
+            end
+            function obj:Toggle()
+                return expanded and self:Collapse() or self:Expand()
+            end
+            function obj:IsExpanded() return expanded end
+            function obj:Remove()     pcall(function() wrapper:Destroy() end) end
+            function obj:Show()       wrapper.Visible = true;  return self end
+            function obj:Hide()       wrapper.Visible = false; return self end
+
+            header.MouseButton1Click:Connect(function()
+                obj:Toggle()
+                if cfg.OnSelect then cfg.OnSelect(obj) end
+            end)
+            header.MouseEnter:Connect(function()
+                if not selected then Tween(header, { BackgroundColor3 = HOV_BG }, TI_FAST) end
+            end)
+            header.MouseLeave:Connect(function()
+                if not selected then Tween(header, { BackgroundColor3 = NORM_BG }, TI_FAST) end
+            end)
+
+            for _, bc in ipairs(cfg.Buttons or {}) do obj:AddButton(bc) end
+            return obj
+        end
+
+
         function Tab:AddDivider(dc)
             dc = dc or {}
             self._order = self._order + 1
