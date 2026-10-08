@@ -1,6 +1,6 @@
 # CrispyLib config API
 
-CrispyLib 3.3.0, released 8 October 2026. The [library](Crispylib.lua) now separates configuration values, application, JSON conversion, and storage. You can choose the folder, replace the storage backend, or use the codec and apply methods with your own config UI. Existing Save/Load/Import/Export methods remain available with both dot and colon calls.
+CrispyLib 3.4.0, released 8 October 2026. The [library](Crispylib.lua) separates configuration values, application, JSON conversion, and storage. You can choose the folder, replace the storage backend, or use the codec and apply methods with your own config UI. Existing Save/Load/Import/Export methods remain available with both dot and colon calls.
 
 ## Choose a folder
 
@@ -207,7 +207,7 @@ Values and controls commit together before callbacks run. A setter error rejects
 
 Autosave skips busy operations, empty registries, and paths whose loading failed or was cancelled. A successful Load or explicit Save clears that path's overwrite protection. A manual Apply/Import alone does not clear it. This preserves the unread or invalid file until the application explicitly resolves it.
 
-When integrating this local version, ensure your loader selects it. A loader that first returns a cached global or downloads a release can bypass the edited local file. Replace config-method monkeypatches with OnApplied where possible; wrappers must preserve all arguments and return values, including Notify=false during profile loading.
+When integrating this release, ensure your loader selects 3.4.0. A loader that first returns a cached global or downloads a release can bypass the intended version. Replace config-method monkeypatches with OnApplied where possible; wrappers must preserve all arguments and return values, including Notify=false during profile loading.
 
 ## Validation
 

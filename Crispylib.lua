@@ -1,6 +1,6 @@
 --[[
-    CrispyLib 3.3.0
-    Local core rework: state dispatch, task ownership, and extensible config/storage API.
+    CrispyLib 3.4.0
+    Responsive desktop/touch UI, owned input, and extensible config/storage API.
     Single-file Roblox/Luau UI library for executor environments.
 
     Compatibility goals:
@@ -13,7 +13,7 @@
     compatibility, but its internals are separated into small subsystems.
 ]]
 
-local VERSION = "3.3.0"
+local VERSION = "3.4.0"
 
 local function getService(name)
     local ok, service = pcall(function()
@@ -88,6 +88,7 @@ local Z_INDEX = {
 }
 
 local TWEEN = {
+    Instant = TweenInfo.new(0),
     Fast = TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
     Medium = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
     Slow = TweenInfo.new(0.32, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
@@ -1416,13 +1417,222 @@ function UI.Hover(taskGroup, button, normalColor, hoverColor, pressedColor)
         setVisual(normalColor, Vector2.new(0, 0))
     end)
     if pressedColor ~= nil then
-        taskGroup:Connect(button.MouseButton1Down, function()
-            setVisual(pressedColor, Vector2.new(-0.04, 0), TWEEN.Instant)
+        taskGroup:Connect(button.InputBegan, function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                setVisual(pressedColor, Vector2.new(-0.04, 0), TWEEN.Instant)
+            end
         end)
-        taskGroup:Connect(button.MouseButton1Up, function()
-            setVisual(hoverColor, Vector2.new(0.06, 0))
+        taskGroup:Connect(button.InputEnded, function(input)
+            if input.UserInputType == Enum.UserInputType.Touch then
+                setVisual(normalColor, Vector2.new(0, 0))
+            elseif input.UserInputType == Enum.UserInputType.MouseButton1 then
+                setVisual(hoverColor, Vector2.new(0.06, 0))
+            end
         end)
     end
+end
+
+-- Shared coordinates use the actual ScreenGui safe area, including its origin.
+local MobileUI = {}
+
+function MobileUI.TouchMode(mode)
+    return mode == "Touch" or (mode ~= "Desktop" and UserInputService.TouchEnabled == true)
+end
+
+function MobileUI.SafeScreen(screenGui, touch)
+    pcall(function()
+        screenGui.ScreenInsets = touch and Enum.ScreenInsets.CoreUISafeInsets or Enum.ScreenInsets.DeviceSafeInsets
+        screenGui.SafeAreaCompatibility = Enum.SafeAreaCompatibility.None
+        screenGui.ClipToDeviceSafeArea = true
+    end)
+end
+
+function MobileUI.Bounds(root, ignoreKeyboard)
+    local origin, size
+    if root ~= nil then
+        local ok, rootOrigin, rootSize = pcall(function() return root.AbsolutePosition, root.AbsoluteSize end)
+        if ok and rootSize.X > 0 and rootSize.Y > 0 then origin, size = rootOrigin, rootSize end
+    end
+    if size == nil then
+        local camera = Workspace.CurrentCamera
+        size = camera and camera.ViewportSize or Vector2.new(1920, 1080)
+        origin = Vector2.new(0, 0)
+    end
+    if not ignoreKeyboard then
+        local ok, visible, keyboardPosition, keyboardSize = pcall(function()
+            return UserInputService.OnScreenKeyboardVisible, UserInputService.OnScreenKeyboardPosition, UserInputService.OnScreenKeyboardSize
+        end)
+        if ok and visible and robloxType(keyboardPosition) == "Vector2" and robloxType(keyboardSize) == "Vector2"
+            and keyboardSize.X >= size.X / 2 and keyboardSize.Y > 0 and keyboardPosition.Y > origin.Y
+            and keyboardPosition.X < origin.X + size.X and keyboardPosition.X + keyboardSize.X > origin.X then
+            size = Vector2.new(size.X, math.min(size.Y, keyboardPosition.Y - origin.Y - 8))
+        end
+    end
+    return origin, Vector2.new(math.max(1, size.X), math.max(1, size.Y))
+end
+
+function MobileUI.WindowSize(size, viewport, fallbackWidth, fallbackHeight, touch)
+    local width, height = fallbackWidth or DEFAULTS.WindowWidth, fallbackHeight or DEFAULTS.WindowHeight
+    if robloxType(size) == "UDim2" then
+        if size.X.Scale ~= 0 or size.X.Offset ~= 0 then width = viewport.X * size.X.Scale + size.X.Offset end
+        if size.Y.Scale ~= 0 or size.Y.Offset ~= 0 then height = viewport.Y * size.Y.Scale + size.Y.Offset end
+    end
+    local availableWidth, availableHeight = math.max(1, viewport.X - 24), math.max(1, viewport.Y - 24)
+    width = clamp(numberOr(width, DEFAULTS.WindowWidth), math.min(touch and 280 or DEFAULTS.MinWindowWidth, availableWidth), availableWidth)
+    height = clamp(numberOr(height, DEFAULTS.WindowHeight), math.min(touch and 200 or DEFAULTS.MinWindowHeight, availableHeight), availableHeight)
+    return math.floor(width + 0.5), math.floor(height + 0.5)
+end
+
+function MobileUI.PopupRect(root, absolute, anchorSize, wantedWidth, wantedHeight)
+    local origin, viewport = MobileUI.Bounds(root)
+    local width = math.min(wantedWidth, math.max(1, viewport.X - 12))
+    local height = math.min(wantedHeight, math.max(1, viewport.Y - 12))
+    local localPoint = absolute - origin
+    local maxX, maxY = math.max(0, viewport.X - width - 6), math.max(0, viewport.Y - height - 6)
+    local x = clamp(localPoint.X + anchorSize.X - width, math.min(6, maxX), maxX)
+    local below = localPoint.Y + anchorSize.Y + 5
+    local y = below + height <= viewport.Y - 6 and below or (localPoint.Y - height - 5)
+    return x, clamp(y, math.min(6, maxY), maxY), width, height
+end
+
+function MobileUI.Contains(object, point)
+    if not object.Visible then return false end
+    local position, size = object.AbsolutePosition, object.AbsoluteSize
+    return size.X > 0 and size.Y > 0 and point.X >= position.X and point.Y >= position.Y
+        and point.X <= position.X + size.X and point.Y <= position.Y + size.Y
+end
+
+function MobileUI.InteractiveAt(handle, point)
+    for _, child in ipairs(handle:GetDescendants()) do
+        if (child:IsA("GuiButton") or child:IsA("TextBox") or child:IsA("ScrollingFrame"))
+            and MobileUI.Contains(child, point) then
+            local parent, visible = child.Parent, true
+            while parent ~= nil and parent ~= handle do
+                if parent:IsA("GuiObject") and (not parent.Visible
+                    or (parent.ClipsDescendants and not MobileUI.Contains(parent, point))) then visible = false; break end
+                parent = parent.Parent
+            end
+            if visible then return true end
+        end
+    end
+    return false
+end
+
+function MobileUI.SuspendScroll(owner)
+    local root = type(owner) == "table" and (owner._root or owner.Popup) or nil
+    if robloxType(root) ~= "Instance" then return nil end
+    local scroll = root:FindFirstAncestorWhichIsA("ScrollingFrame")
+    if scroll == nil then return nil end
+    local previous = scroll.ScrollingEnabled
+    scroll.ScrollingEnabled = false
+    return { Instance = scroll, Enabled = previous }
+end
+
+function MobileUI.RestoreScroll(state)
+    if state ~= nil and state.Instance.Parent ~= nil then state.Instance.ScrollingEnabled = state.Enabled end
+end
+
+function MobileUI.RevealTextBox(textBox, screenGui)
+    if robloxType(textBox) ~= "Instance" or not textBox:IsDescendantOf(screenGui) then return end
+    local scroll = textBox:FindFirstAncestorWhichIsA("ScrollingFrame")
+    if scroll == nil then return end
+    local top = scroll.AbsolutePosition.Y + 8
+    local bottom = top + math.max(0, scroll.AbsoluteSize.Y - 16)
+    local textTop = textBox.AbsolutePosition.Y
+    local textBottom = textTop + textBox.AbsoluteSize.Y
+    local delta = textBottom > bottom and textBottom - bottom or (textTop < top and textTop - top or 0)
+    if delta ~= 0 then
+        local current = scroll.CanvasPosition
+        local maximum = math.max(0, scroll.AbsoluteCanvasSize.Y - scroll.AbsoluteSize.Y)
+        scroll.CanvasPosition = Vector2.new(current.X, clamp(current.Y + delta, 0, maximum))
+    end
+end
+
+function MobileUI.AttachRow(component)
+    local row, label, description = component._root, component._label, component._description
+    if label == nil or row.Name:sub(1, 4) ~= "Row_" then return end
+    local originalSize = row.Size
+    local entries, controls = {}, {}
+    for _, child in ipairs(row:GetChildren()) do
+        if child:IsA("GuiObject") and child.Name ~= "Hover" then
+            local entry = { Instance = child, Size = child.Size, Position = child.Position }
+            entries[#entries + 1] = entry
+            if child ~= label and child ~= description then controls[#controls + 1] = entry end
+        end
+    end
+    local function layout()
+        if component._destroyed or row.Parent == nil then return end
+        local window = component._tab._window
+        local width = row.AbsoluteSize.X
+        if width <= 0 then width = window._width - (window._compact and 0 or DEFAULTS.SidebarWidth) - 48 end
+        local touch, stacked = window._touch, width < 480
+        local nextRowSize = originalSize
+        for _, entry in ipairs(entries) do
+            if entry.Instance.Parent == row then
+                entry.Instance.Size, entry.Instance.Position = entry.Size, entry.Position
+            end
+        end
+        if description ~= nil then
+            description.TextWrapped = touch or stacked
+            description.TextTruncate = (touch or stacked) and Enum.TextTruncate.None or Enum.TextTruncate.AtEnd
+            description.TextSize = touch and 11 or 10
+        end
+        if #controls == 0 then
+            label.Size = UDim2.new(1, -32, 0, 18)
+            if description ~= nil then description.Size = UDim2.new(1, -32, 0, touch and 28 or 14) end
+            if touch and description ~= nil then nextRowSize = UDim2.new(1, 0, 0, math.max(originalSize.Y.Offset, 78)) end
+            row.Size = nextRowSize
+            return
+        end
+        local toggle = controls[1].Instance.Name == "ToggleTrack"
+        if toggle then
+            label.Size = UDim2.new(1, -100, 0, 18)
+            if description ~= nil then description.Size = UDim2.new(1, -100, 0, (touch or stacked) and 28 or 14) end
+            if touch and description ~= nil then nextRowSize = UDim2.new(1, 0, 0, math.max(originalSize.Y.Offset, 78)) end
+            row.Size = nextRowSize
+            return
+        end
+        if stacked then
+            label.Size, label.Position = UDim2.new(1, -32, 0, 18), UDim2.fromOffset(16, 12)
+            local top = description ~= nil and 70 or 40
+            if description ~= nil then
+                description.Size, description.Position = UDim2.new(1, -32, 0, 28), UDim2.fromOffset(16, 36)
+            end
+            local contentHeight = touch and 44 or 30
+            for _, entry in ipairs(controls) do
+                local child = entry.Instance
+                if child.Name == "SliderTrack" or child.Name == "ProgressTrack" then
+                    child.Size = UDim2.new(1, -32, 0, entry.Size.Y.Offset)
+                    child.Position = UDim2.fromOffset(16, top + 22 - entry.Size.Y.Offset / 2)
+                    contentHeight = 44
+                elseif child.Name == "SliderValue" or child.Name == "ProgressValue" then
+                    label.Size = UDim2.new(1, -116, 0, 18)
+                    child.Size, child.Position = UDim2.new(0, 84, 0, 18), UDim2.new(1, -100, 0, 12)
+                else
+                    local height = math.max(contentHeight, originalSize.Y.Offset * entry.Size.Y.Scale + entry.Size.Y.Offset)
+                    child.Size, child.Position = UDim2.new(1, -32, 0, height), UDim2.fromOffset(16, top)
+                    contentHeight = math.max(contentHeight, height)
+                end
+            end
+            nextRowSize = UDim2.new(1, 0, 0, top + contentHeight + 12)
+        elseif touch then
+            nextRowSize = UDim2.new(1, 0, 0, math.max(originalSize.Y.Offset, description ~= nil and 78 or 70))
+            for _, entry in ipairs(controls) do
+                if entry.Size.Y.Scale == 0 and entry.Size.Y.Offset >= 26 and entry.Size.Y.Offset <= 36 then
+                    local child = entry.Instance
+                    child.Size = UDim2.new(entry.Size.X.Scale, entry.Size.X.Offset, 0, 44)
+                    if entry.Position.Y.Scale == 0.5 then
+                        child.Position = UDim2.new(entry.Position.X.Scale, entry.Position.X.Offset, 0.5, -22)
+                    end
+                end
+            end
+            if description ~= nil then description.Size = UDim2.new(description.Size.X.Scale, description.Size.X.Offset, 0, 28) end
+        end
+        row.Size = nextRowSize
+    end
+    component._layoutRow = layout
+    component._tasks:Connect(row:GetPropertyChangedSignal("AbsoluteSize"), layout)
+    layout()
 end
 
 local opacityStates = setmetatable({}, { __mode = "k" })
@@ -3366,10 +3576,11 @@ function System.OnFPSDrop(threshold, callback)
     end
 end
 
-local function clampedDragPosition(target, positionStart, absoluteStart, pointerDelta, viewport)
+local function clampedDragPosition(target, positionStart, absoluteStart, pointerDelta, viewport, origin)
+    origin = origin or Vector2.new(0, 0)
     local size = target.AbsoluteSize
-    local x = clamp(absoluteStart.X + pointerDelta.X, 0, math.max(0, viewport.X - size.X))
-    local y = clamp(absoluteStart.Y + pointerDelta.Y, 0, math.max(0, viewport.Y - size.Y))
+    local x = clamp(absoluteStart.X + pointerDelta.X, origin.X, origin.X + math.max(0, viewport.X - size.X))
+    local y = clamp(absoluteStart.Y + pointerDelta.Y, origin.Y, origin.Y + math.max(0, viewport.Y - size.Y))
     return UDim2.new(
         positionStart.X.Scale, positionStart.X.Offset + x - absoluteStart.X,
         positionStart.Y.Scale, positionStart.Y.Offset + y - absoluteStart.Y
@@ -3396,6 +3607,7 @@ local function attachSimpleDrag(group, handle, target)
         if kind ~= Enum.UserInputType.MouseButton1 and kind ~= Enum.UserInputType.Touch then
             return
         end
+        if dragging or MobileUI.InteractiveAt(handle, pointerPosition(input, kind)) then return end
         dragging = true
         inputType = kind
         activeInput = input
@@ -3414,10 +3626,9 @@ local function attachSimpleDrag(group, handle, target)
         if inputType == Enum.UserInputType.Touch and input ~= activeInput then
             return
         end
-        local camera = Workspace.CurrentCamera
-        local viewport = camera and camera.ViewportSize or Vector2.new(1920, 1080)
+        local origin, viewport = MobileUI.Bounds(target:FindFirstAncestorOfClass("ScreenGui"))
         local delta = pointerPosition(input, inputType) - pointerStart
-        target.Position = clampedDragPosition(target, targetPositionStart, targetAbsoluteStart, delta, viewport)
+        target.Position = clampedDragPosition(target, targetPositionStart, targetAbsoluteStart, delta, viewport, origin)
     end)
     group:Connect(UserInputService.InputEnded, function(input)
         local matches = inputType == Enum.UserInputType.MouseButton1
@@ -3428,6 +3639,9 @@ local function attachSimpleDrag(group, handle, target)
             inputType = nil
             activeInput = nil
         end
+    end)
+    group:Connect(UserInputService.WindowFocusReleased, function()
+        dragging, inputType, activeInput = false, nil, nil
     end)
 end
 
@@ -3823,12 +4037,14 @@ local function ensureNotificationGui()
     end
 
     local container = UI.Create("Frame", {
-        Size = UDim2.new(0, 320, 1, -24),
-        Position = UDim2.new(1, -332, 0, 12),
+        Size = UDim2.new(1, -24, 1, -24), AnchorPoint = Vector2.new(1, 0),
+        Position = UDim2.new(1, -12, 0, 12),
         BackgroundTransparency = 1,
         ZIndex = Z_INDEX.Notification,
         Parent = screenGui,
     })
+    UI.Create("UISizeConstraint", { MaxSize = Vector2.new(320, 10000), Parent = container })
+    MobileUI.SafeScreen(screenGui, MobileUI.TouchMode("Auto"))
     UI.List(container, Enum.FillDirection.Vertical, 8)
     NotificationManager._gui = screenGui
     NotificationManager._container = container
@@ -3992,7 +4208,7 @@ local function buildNotification(handle)
     handle._descriptionLabel = descriptionLabel
     handle._accent = accent
     handle._progressFill = progressFill
-    group:Connect(closeButton.MouseButton1Click, function()
+    group:Connect(closeButton.Activated, function()
         dismissNotification(handle)
     end)
     UI.Tween(card, { Position = UDim2.new(0, 0, 0, 0) }, TWEEN.Ease)
@@ -4128,6 +4344,10 @@ function InputRouter.new(taskGroup)
     taskGroup:Connect(UserInputService.InputBegan, function(input, processed)
         self:_onInputBegan(input, processed)
     end)
+    taskGroup:Connect(UserInputService.WindowFocusReleased, function()
+        self:CancelPointer()
+        self:CancelCapture()
+    end)
     return self
 end
 
@@ -4140,19 +4360,24 @@ function InputRouter:BeginPointer(input, onMove, onEnd, owner, updateImmediately
         return false
     end
 
-    if self._pointer ~= nil and type(self._pointer.OnEnd) == "function" then
-        safeCall(self._pointer.OnEnd, true)
-    end
+    -- One pointer owns an interaction until it ends; a second finger cannot steal it.
+    if self._pointer ~= nil then return false end
     self._pointer = {
         Input = input,
         Kind = kind,
         Owner = owner,
         OnMove = onMove,
         OnEnd = onEnd,
+        Scroll = MobileUI.SuspendScroll(owner),
     }
-    if updateImmediately ~= false then
-        safeCall(onMove, inputPosition2(input), input)
+    local pointer = self._pointer
+    if type(input.GetPropertyChangedSignal) == "function" then
+        pointer.EndConnection = self._tasks:Connect(input:GetPropertyChangedSignal("UserInputState"), function()
+            if self._pointer == pointer and (input.UserInputState == Enum.UserInputState.End
+                or input.UserInputState == Enum.UserInputState.Cancel) then self:_onInputEnded(input) end
+        end)
     end
+    if updateImmediately ~= false then safeCall(onMove, inputPosition2(input), input) end
     return true
 end
 
@@ -4178,6 +4403,8 @@ function InputRouter:CancelPointer(owner)
         return false
     end
     self._pointer = nil
+    MobileUI.RestoreScroll(pointer.Scroll)
+    if pointer.EndConnection ~= nil then self._tasks:Cancel(pointer.EndConnection) end
     if type(pointer.OnEnd) == "function" then
         safeCall(pointer.OnEnd, true)
     end
@@ -4197,9 +4424,11 @@ function InputRouter:_onInputEnded(input)
     end
 
     self._pointer = nil
-    if type(pointer.OnEnd) == "function" then
-        safeCall(pointer.OnEnd, false)
-    end
+    local cancelled = input.UserInputState == Enum.UserInputState.Cancel
+    if not cancelled then safeCall(pointer.OnMove, inputPosition2(input), input) end
+    MobileUI.RestoreScroll(pointer.Scroll)
+    if pointer.EndConnection ~= nil then self._tasks:Cancel(pointer.EndConnection) end
+    if type(pointer.OnEnd) == "function" then safeCall(pointer.OnEnd, cancelled) end
 end
 
 function InputRouter:_onInputBegan(input, processed)
@@ -4528,6 +4757,7 @@ local function newComponent(tab, root, label, description, flag, config)
     }, ComponentMethods)
     component:_refreshSearchText()
     tab:_adoptComponent(component)
+    MobileUI.AttachRow(component)
 
     component._tasks:Connect(root.Destroying, function()
         if not component._destroyed then
@@ -4581,23 +4811,9 @@ local function viewportSize()
     return Vector2.new(1920, 1080)
 end
 
-local function requestedWindowSize(config)
-    local width = DEFAULTS.WindowWidth
-    local height = DEFAULTS.WindowHeight
-    if robloxType(config.Size) == "UDim2" then
-        if config.Size.X.Offset ~= 0 then
-            width = config.Size.X.Offset
-        end
-        if config.Size.Y.Offset ~= 0 then
-            height = config.Size.Y.Offset
-        end
-    end
-    local viewport = viewportSize()
-    local availableWidth = math.max(280, viewport.X - 24)
-    local availableHeight = math.max(200, viewport.Y - 24)
-    width = clamp(width, math.min(DEFAULTS.MinWindowWidth, availableWidth), availableWidth)
-    height = clamp(height, math.min(DEFAULTS.MinWindowHeight, availableHeight), availableHeight)
-    return math.floor(width + 0.5), math.floor(height + 0.5)
+local function requestedWindowSize(config, root)
+    local _, viewport = MobileUI.Bounds(root)
+    return MobileUI.WindowSize(config.Size, viewport, nil, nil, MobileUI.TouchMode(config.MobileMode))
 end
 
 local function disabledControlSet(config)
@@ -4610,7 +4826,7 @@ local function disabledControlSet(config)
     return result
 end
 
-local function createWindowScreenGui(title)
+local function createWindowScreenGui(title, config)
     local screenGui = UI.Create("ScreenGui", {
         Name = screenGuiName(title),
         ResetOnSpawn = false,
@@ -4618,6 +4834,7 @@ local function createWindowScreenGui(title)
         ZIndexBehavior = Enum.ZIndexBehavior.Global,
         DisplayOrder = 999,
     })
+    MobileUI.SafeScreen(screenGui, MobileUI.TouchMode(config.MobileMode))
     local ok, err = Runtime.ParentScreenGui(screenGui)
     if not ok then
         screenGui:Destroy()
@@ -4660,6 +4877,7 @@ local function buildTrafficControls(window)
         ZIndex = Z_INDEX.TitleBar + 1,
         Parent = window._titleBar,
     })
+    window._trafficHolder = holder
     UI.List(holder, Enum.FillDirection.Horizontal, 5)
     local closeButton = makeTrafficButton(holder, 1, "CloseButton")
     local minimizeButton = makeTrafficButton(holder, 2, "MinimizeButton")
@@ -4880,7 +5098,11 @@ local function setMinimizedTitleShape(window, minimized)
 end
 
 local function buildWindowShell(window, config)
-    local width, height = requestedWindowSize(config)
+    window._viewport = UI.Create("Frame", {
+        Name = "SafeViewport", Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1,
+        BorderSizePixel = 0, Parent = window._screenGui,
+    })
+    local width, height = requestedWindowSize(config, window._viewport)
     window._width = width
     window._height = height
     local frame = UI.Create("Frame", {
@@ -4893,7 +5115,7 @@ local function buildWindowShell(window, config)
         ClipsDescendants = true,
         Active = true,
         ZIndex = Z_INDEX.Window,
-        Parent = window._screenGui,
+        Parent = window._viewport,
         Theme = { BackgroundColor3 = "Border" },
     })
     UI.Round(frame, DEFAULTS.WindowCornerRadius)
@@ -4914,10 +5136,168 @@ local function buildWindowShell(window, config)
     UI.Tween(outline, { Transparency = 0.26 }, TWEEN.Ease)
 end
 
-local function buildNavigationControls(window)
-    window._sidebarButton = nil
-    window._backButton = nil
-    window._forwardButton = nil
+function WindowMethods:_applyBodyLayout()
+    local titleHeight = self._titleHeight
+    local sidebarWidth = self._sidebarVisible and math.max(0, math.min(DEFAULTS.SidebarWidth, self._width - 24)) or 0
+    local contentInset = self._compact and 0 or sidebarWidth
+    self._titleBar.Size = UDim2.new(1, 0, 0, titleHeight)
+    self._sidebar.Visible = self._sidebarVisible and not self._minimized
+    self._sidebar.Size = UDim2.new(0, sidebarWidth, 1, -titleHeight)
+    self._sidebar.Position = UDim2.fromOffset(0, titleHeight)
+    self._content.Visible = not self._minimized
+    self._content.Size = UDim2.new(1, -contentInset, 1, -titleHeight)
+    self._content.Position = UDim2.fromOffset(contentInset, titleHeight)
+    self._sidebarDivider.Visible = self._sidebarVisible and not self._minimized
+    self._sidebarDivider.Size = UDim2.new(0, 1, 1, -titleHeight)
+    self._sidebarDivider.Position = UDim2.fromOffset(sidebarWidth - 1, titleHeight)
+    self._drawerBackdrop.Visible = self._compact and self._sidebarVisible and not self._minimized
+    self._drawerBackdrop.Size = UDim2.new(1, 0, 1, -titleHeight)
+    self._drawerBackdrop.Position = UDim2.fromOffset(0, titleHeight)
+end
+
+function WindowMethods:_refreshLayout()
+    if self._destroyed or self._frame.Parent == nil then return end
+    local _, viewport = MobileUI.Bounds(self._viewport)
+    self._touch = MobileUI.TouchMode(self._mobileMode)
+    local width, height = MobileUI.WindowSize(self._requestedSize, viewport, nil, nil, self._touch)
+    self._width, self._height, self._winW, self._winH = width, height, width, height
+    if self._maximized then width, height = math.max(1, viewport.X - 16), math.max(1, viewport.Y - 16) end
+    local compact = width < 640
+    if compact ~= self._compact then
+        if compact then
+            self._desktopSidebarVisible, self._sidebarVisible = self._sidebarVisible, false
+        else
+            self._sidebarVisible = self._desktopSidebarVisible ~= false
+        end
+        self._compact = compact
+    end
+    local shortHeader = compact and height < 240
+    self._titleHeight = compact and (shortHeader and 60 or 116) or DEFAULTS.TitleBarHeight
+    -- Cancel resize tweens before applying geometry from a changed viewport.
+    UI.Tween(self._frame, { Size = UDim2.fromOffset(width, self._minimized and self._titleHeight + 2 or height) }, TWEEN.Instant)
+    self._sidebarButton.Visible = compact
+    local buttonSize = self._touch and 44 or 26
+    local count = 0
+    for _, button in ipairs({ self._closeButton, self._minimizeButton, self._maximizeButton }) do
+        button.Size = UDim2.fromOffset(buttonSize, buttonSize)
+        if button.Visible then count += 1 end
+    end
+    local trafficWidth = math.max(0, count * (buttonSize + 5) - 5)
+    self._trafficHolder.Size = UDim2.fromOffset(trafficWidth, buttonSize)
+    self._trafficHolder.Position = compact and UDim2.fromOffset(12, 8) or UDim2.new(0, 15, 0.5, -buttonSize / 2)
+    self._trafficHolder.Visible, self._titleHolder.Visible = not shortHeader, not shortHeader
+    if shortHeader then
+        self._searchHolder.Size, self._searchHolder.Position = UDim2.new(1, -80, 0, 44), UDim2.fromOffset(12, 8)
+    elseif compact then
+        local titleLeft = 24 + trafficWidth
+        self._titleHolder.Size = UDim2.fromOffset(math.max(1, width - titleLeft - 66), 60)
+        self._titleHolder.Position = UDim2.fromOffset(titleLeft, 0)
+        self._searchHolder.Size, self._searchHolder.Position = UDim2.new(1, -24, 0, 44), UDim2.fromOffset(12, 62)
+    else
+        self._titleHolder.Size, self._titleHolder.Position = UDim2.new(0, 260, 1, 0), UDim2.new(0.5, -130, 0, 0)
+        self._searchHolder.Size = UDim2.fromOffset(140, self._touch and 44 or 32)
+        self._searchHolder.Position = UDim2.new(1, -154, 0.5, self._touch and -22 or -16)
+    end
+    if self._userInfo ~= nil then self._userInfo.Visible = not compact and width >= 900 end
+    if self._icon ~= nil then self._icon.Visible = not compact end
+    self:_applyBodyLayout()
+    for _, tab in ipairs(self._tabs) do
+        tab._button.Size = UDim2.new(1, 0, 0, self._touch and 44 or 36)
+        local padding = tab._content:FindFirstChildOfClass("UIPadding")
+        if padding ~= nil then
+            padding.PaddingLeft, padding.PaddingRight = UDim.new(0, compact and 12 or 24), UDim.new(0, compact and 12 or 24)
+        end
+        for _, component in ipairs(tab._components) do
+            if component._layoutRow ~= nil then component._layoutRow() end
+            if component._updateKeyDisplay ~= nil then component._updateKeyDisplay() end
+            if component._layoutTouch ~= nil then component._layoutTouch() end
+        end
+    end
+    for modal in pairs(self._modals) do
+        if modal._fit ~= nil and not modal._destroyed then modal._fit() end
+    end
+    self._mobileToggle.Visible = self._mobileToggleEnabled == true
+        or (self._mobileToggleEnabled ~= false and self._touch)
+    self:_clampToViewport()
+    for _, popup in ipairs(table.clone(self._popups)) do
+        if type(popup.Fit) == "function" then safeCall(popup.Fit) end
+    end
+end
+
+function WindowMethods:SetMobileMode(mode)
+    if mode ~= "Auto" and mode ~= "Touch" and mode ~= "Desktop" then
+        reportError("mobile mode must be Auto, Touch, or Desktop")
+        return self
+    end
+    self._mobileMode = mode
+    MobileUI.SafeScreen(self._screenGui, MobileUI.TouchMode(mode))
+    self:ClosePopups()
+    self._input:CancelPointer()
+    self:_refreshLayout()
+    return self
+end
+
+function WindowMethods:GetMobileMode()
+    return self._mobileMode
+end
+
+function WindowMethods:_buildMobileControls(config)
+    local button = UI.Create("TextButton", {
+        Name = "MobileTabs", Size = UDim2.fromOffset(44, 44), Position = UDim2.new(1, -56, 0, 8),
+        BackgroundTransparency = 0.08, BorderSizePixel = 0, Text = "☰", TextSize = 20,
+        Font = Enum.Font.GothamBold, AutoButtonColor = false, Visible = false,
+        ZIndex = Z_INDEX.TitleBar + 3, Parent = self._titleBar,
+        Theme = { BackgroundColor3 = "InputBg", TextColor3 = "LabelText" },
+    })
+    UI.Round(button, 10)
+    UI.Stroke(button)
+    self._sidebarButton = button
+    local backdrop = UI.Create("TextButton", {
+        Name = "TabBackdrop", BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.45,
+        BorderSizePixel = 0, Text = "", AutoButtonColor = false, Visible = false,
+        ZIndex = Z_INDEX.Sidebar - 1, Parent = self._surface,
+    })
+    self._drawerBackdrop = backdrop
+    self._tasks:Connect(backdrop.Activated, function() self:SetSidebarVisible(false) end)
+    local toggle = UI.Create("TextButton", {
+        Name = "MobileToggle", Size = UDim2.fromOffset(48, 48),
+        Position = robloxType(config.MobileTogglePosition) == "UDim2" and config.MobileTogglePosition or UDim2.new(1, -60, 0.5, -24),
+        BackgroundTransparency = 0.06, BorderSizePixel = 0, Text = normalizeText(config.MobileToggleText, "UI"),
+        TextSize = 13, Font = Enum.Font.GothamBold, AutoButtonColor = false,
+        ZIndex = Z_INDEX.Popup - 1, Parent = self._viewport,
+        Theme = { BackgroundColor3 = "Accent", TextColor3 = "TabActiveText" },
+    })
+    UI.Round(toggle, 16)
+    UI.Stroke(toggle, nil, 1, 0.35)
+    self._mobileToggle = toggle
+    local suppressUntil, dragMoved = 0, false
+    self._tasks:Connect(toggle.InputBegan, function(input)
+        local kind = input.UserInputType
+        if kind ~= Enum.UserInputType.Touch and kind ~= Enum.UserInputType.MouseButton1 then return end
+        if self._input._pointer ~= nil then return end
+        dragMoved = false
+        local start, positionStart, absoluteStart = inputPosition2(input), toggle.Position, toggle.AbsolutePosition
+        local moved = false
+        self._input:BeginPointer(input, function(position)
+            local delta = position - start
+            if delta.Magnitude < 8 and not moved then return end
+            moved = true
+            dragMoved = true
+            local origin, viewport = MobileUI.Bounds(self._viewport)
+            toggle.Position = clampedDragPosition(toggle, positionStart, absoluteStart, delta, viewport, origin)
+        end, function(cancelled)
+            if moved or cancelled then suppressUntil = os.clock() + 0.25 end
+            dragMoved = false
+        end, toggle, false)
+    end)
+    self._tasks:Connect(toggle.Activated, function()
+        if not dragMoved and os.clock() >= suppressUntil then self:Toggle() end
+    end)
+end
+
+local function buildNavigationControls(window, config)
+    window:_buildMobileControls(config)
+    window._backButton, window._forwardButton = nil, nil
 end
 
 local function buildUserInfo(window, config)
@@ -4931,6 +5311,7 @@ local function buildUserInfo(window, config)
         ZIndex = Z_INDEX.TitleBar + 1,
         Parent = window._titleBar,
     })
+    window._userInfo = holder
     local avatar = UI.Create("ImageLabel", {
         Size = UDim2.fromOffset(26, 26),
         Position = UDim2.fromOffset(0, 2),
@@ -4986,20 +5367,19 @@ local function createAcrylicBlur(window, config)
 end
 
 function WindowMethods:_clampToViewport()
-    if self._destroyed or self._frame.Parent == nil then
-        return
-    end
-    local viewport = viewportSize()
-    local size = self._frame.AbsoluteSize
-    local position = self._frame.AbsolutePosition
-    local x = clamp(position.X, 0, math.max(0, viewport.X - size.X))
-    local y = clamp(position.Y, 0, math.max(0, viewport.Y - size.Y))
+    if self._destroyed or self._frame.Parent == nil then return end
+    local origin, viewport = MobileUI.Bounds(self._viewport)
+    local size, position = self._frame.AbsoluteSize, self._frame.AbsolutePosition
+    local x = clamp(position.X, origin.X, origin.X + math.max(0, viewport.X - size.X))
+    local y = clamp(position.Y, origin.Y, origin.Y + math.max(0, viewport.Y - size.Y))
     if x ~= position.X or y ~= position.Y then
         local current = self._frame.Position
-        self._frame.Position = UDim2.new(
-            current.X.Scale, current.X.Offset + x - position.X,
-            current.Y.Scale, current.Y.Offset + y - position.Y
-        )
+        self._frame.Position = UDim2.new(current.X.Scale, current.X.Offset + x - position.X,
+            current.Y.Scale, current.Y.Offset + y - position.Y)
+    end
+    if self._mobileToggle ~= nil then
+        local toggle = self._mobileToggle
+        toggle.Position = clampedDragPosition(toggle, toggle.Position, toggle.AbsolutePosition, Vector2.new(0, 0), viewport, origin)
     end
 end
 
@@ -5012,8 +5392,10 @@ function WindowMethods:_attachDrag(handle)
         if kind ~= Enum.UserInputType.MouseButton1 and kind ~= Enum.UserInputType.Touch then
             return
         end
-        self:ClosePopups()
         local pointerStart = inputPosition2(input)
+        if self._input._pointer ~= nil then return end
+        if MobileUI.InteractiveAt(handle, pointerStart) then return end
+        self:ClosePopups()
         local framePositionStart = self._frame.Position
         local frameAbsoluteStart = self._frame.AbsolutePosition
         self._input:BeginPointer(input, function(position)
@@ -5021,9 +5403,9 @@ function WindowMethods:_attachDrag(handle)
             if delta.X == 0 and delta.Y == 0 then
                 return
             end
-            local viewport = viewportSize()
+            local origin, viewport = MobileUI.Bounds(self._viewport)
             self._frame.Position = clampedDragPosition(
-                self._frame, framePositionStart, frameAbsoluteStart, delta, viewport
+                self._frame, framePositionStart, frameAbsoluteStart, delta, viewport, origin
             )
         end, nil, self, false)
     end)
@@ -5031,7 +5413,8 @@ end
 
 function WindowMethods:_wireControls(config)
     if self._closeButton.Visible then
-        self._tasks:Connect(self._closeButton.MouseButton1Click, function()
+        self._tasks:Connect(self._closeButton.Activated, function()
+            if self._touch and self._mobileToggle.Visible then self:Hide(); return end
             UI.Tween(self._frame, { BackgroundTransparency = 1 }, TWEEN.Medium)
             UI.Tween(self._surface, { GroupTransparency = 1 }, TWEEN.Medium)
             UI.Tween(self._outline, { Transparency = 1 }, TWEEN.Medium)
@@ -5041,27 +5424,27 @@ function WindowMethods:_wireControls(config)
         end)
     end
     if self._minimizeButton.Visible then
-        self._tasks:Connect(self._minimizeButton.MouseButton1Click, function()
+        self._tasks:Connect(self._minimizeButton.Activated, function()
             self:ToggleMinimize()
         end)
     end
     if self._maximizeButton.Visible then
-        self._tasks:Connect(self._maximizeButton.MouseButton1Click, function()
+        self._tasks:Connect(self._maximizeButton.Activated, function()
             self:ToggleMaximize()
         end)
     end
     if self._sidebarButton ~= nil then
-        self._tasks:Connect(self._sidebarButton.MouseButton1Click, function()
+        self._tasks:Connect(self._sidebarButton.Activated, function()
             self:SetSidebarVisible(not self._sidebarVisible)
         end)
     end
     if self._backButton ~= nil then
-        self._tasks:Connect(self._backButton.MouseButton1Click, function()
+        self._tasks:Connect(self._backButton.Activated, function()
             self:_navigateHistory(-1)
         end)
     end
     if self._forwardButton ~= nil then
-        self._tasks:Connect(self._forwardButton.MouseButton1Click, function()
+        self._tasks:Connect(self._forwardButton.Activated, function()
             self:_navigateHistory(1)
         end)
     end
@@ -5101,9 +5484,11 @@ function WindowMethods:_createTooltip(owner, text, componentTasks)
     UI.Gradient(tooltip, "SurfaceGradientStart", "SurfaceGradientEnd", 115, 0.12)
 
     local function reposition()
-        local viewport = viewportSize()
-        local position = owner.AbsolutePosition
-        local x = clamp(position.X, 6, math.max(6, viewport.X - 236))
+        local origin, viewport = MobileUI.Bounds(self._viewport)
+        local position = owner.AbsolutePosition - origin
+        local width = math.min(230, math.max(1, viewport.X - 12))
+        tooltip.Size = UDim2.fromOffset(width, 34)
+        local x = clamp(position.X, 6, math.max(6, viewport.X - width - 6))
         local above = position.Y - 38
         local y = above >= 6 and above or (position.Y + owner.AbsoluteSize.Y + 4)
         tooltip.Position = UDim2.fromOffset(x, y)
@@ -5166,7 +5551,7 @@ function WindowMethods:GetComponent(flag)
     return self._components[normalizeFlag(flag)]
 end
 
-function WindowMethods:RegisterPopup(instance, closeCallback)
+function WindowMethods:RegisterPopup(instance, closeCallback, fitCallback)
     if robloxType(instance) ~= "Instance" or type(closeCallback) ~= "function" then
         return function() end
     end
@@ -5175,7 +5560,7 @@ function WindowMethods:RegisterPopup(instance, closeCallback)
         return function() end
     end
 
-    local entry = { Instance = instance, Close = closeCallback }
+    local entry = { Instance = instance, Close = closeCallback, Fit = fitCallback }
     self._popups[#self._popups + 1] = entry
     local active = true
     return function()
@@ -5198,9 +5583,12 @@ function WindowMethods:ClosePopups(except)
 end
 
 function WindowMethods:_activateTab(tab, pushHistory)
-    if self._destroyed or tab == nil or tab._destroyed or self._activeTab == tab then
-        return self
-    end
+    if self._destroyed or tab == nil or tab._destroyed then return self end
+    if self._compact then self:SetSidebarVisible(false) end
+    if self._activeTab == tab then return self end
+    self:ClosePopups()
+    self._input:CancelPointer()
+    self._input:CancelCapture()
     if self._activeTab ~= nil then
         self._activeTab:_setActive(false)
     end
@@ -5257,17 +5645,8 @@ end
 
 function WindowMethods:SetSidebarVisible(visible)
     self._sidebarVisible = visible == true
-    local sidebarWidth = self._sidebarVisible and DEFAULTS.SidebarWidth or 0
-    UI.Tween(self._sidebar, {
-        Size = UDim2.new(0, sidebarWidth, 1, -DEFAULTS.TitleBarHeight),
-    }, TWEEN.Slow)
-    UI.Tween(self._content, {
-        Size = UDim2.new(1, -sidebarWidth, 1, -DEFAULTS.TitleBarHeight),
-        Position = UDim2.new(0, sidebarWidth, 0, DEFAULTS.TitleBarHeight),
-    }, TWEEN.Slow)
-    if self._sidebarDivider ~= nil then
-        self._sidebarDivider.Visible = self._sidebarVisible
-    end
+    if not self._compact then self._desktopSidebarVisible = self._sidebarVisible end
+    self:_applyBodyLayout()
     return self
 end
 
@@ -5283,6 +5662,8 @@ end
 function WindowMethods:Hide()
     if not self._destroyed then
         self:ClosePopups()
+        self._input:CancelPointer()
+        self._input:CancelCapture()
         self._frame.Visible = false
         if self._blur ~= nil then self._blur.Enabled = false end
     end
@@ -5309,40 +5690,20 @@ end
 
 function WindowMethods:Minimize(state)
     self._minimized = state == nil and true or state == true
-    if not self._minimized then
-        setMinimizedTitleShape(self, false)
-    end
-    local viewport = viewportSize()
-    local width = self._maximized and math.max(280, viewport.X - 16) or self._width
-    local height
-    if self._minimized then
-        height = DEFAULTS.TitleBarHeight + 2
-    elseif self._maximized then
-        height = math.max(200, viewport.Y - 16)
-    else
-        height = self._height
-    end
-    UI.Tween(self._frame, { Size = UDim2.fromOffset(width, height) }, TWEEN.Slow)
-    if self._minimized then
-        self._tasks:Delay(0.32, function()
-            if not self._destroyed and self._minimized then
-                setMinimizedTitleShape(self, true)
-            end
-        end)
-    end
+    self:ClosePopups()
+    self._input:CancelPointer()
+    setMinimizedTitleShape(self, self._minimized)
+    self:_refreshLayout()
     return self
 end
 
 function WindowMethods:Restore()
     local wasMaximized = self._maximized
-    self._maximized = false
-    self._minimized = false
+    self._maximized, self._minimized = false, false
     setMinimizedTitleShape(self, false)
-    local goals = { Size = UDim2.fromOffset(self._width, self._height) }
-    if wasMaximized and self._restorePosition ~= nil then
-        goals.Position = self._restorePosition
-    end
-    UI.Tween(self._frame, goals, TWEEN.Slow)
+    self:_refreshLayout()
+    if wasMaximized and self._restorePosition ~= nil then self._frame.Position = self._restorePosition end
+    self:_clampToViewport()
     return self
 end
 
@@ -5351,18 +5712,13 @@ function WindowMethods:ToggleMinimize()
 end
 
 function WindowMethods:Maximize()
-    if self._maximized then
-        return self
-    end
-    self._restorePosition = self._frame.Position
-    self._maximized = true
-    self._minimized = false
+    if self._maximized then return self end
+    self._restorePosition, self._maximized, self._minimized = self._frame.Position, true, false
+    self:ClosePopups()
+    self._input:CancelPointer()
     setMinimizedTitleShape(self, false)
-    local viewport = viewportSize()
-    UI.Tween(self._frame, {
-        Position = UDim2.fromOffset(8, 8),
-        Size = UDim2.fromOffset(math.max(280, viewport.X - 16), math.max(200, viewport.Y - 16)),
-    }, TWEEN.Slow)
+    self:_refreshLayout()
+    self._frame.Position = UDim2.fromOffset(8, 8)
     return self
 end
 
@@ -5433,21 +5789,11 @@ function WindowMethods:SetPosition(position)
 end
 
 function WindowMethods:Resize(size)
-    if robloxType(size) ~= "UDim2" then
-        return self
-    end
-    local viewport = viewportSize()
-    local width = size.X.Offset ~= 0 and size.X.Offset or self._width
-    local height = size.Y.Offset ~= 0 and size.Y.Offset or self._height
-    self._width = clamp(width, math.min(DEFAULTS.MinWindowWidth, viewport.X), math.max(280, viewport.X - 8))
-    self._height = clamp(height, math.min(DEFAULTS.MinWindowHeight, viewport.Y), math.max(200, viewport.Y - 8))
-    self._winW = self._width
-    self._winH = self._height
-    self._maximized = false
-    UI.Tween(self._frame, { Size = UDim2.fromOffset(self._width, self._height) }, TWEEN.Slow)
-    self._tasks:Delay(0.34, function()
-        self:_clampToViewport()
-    end)
+    if robloxType(size) ~= "UDim2" then return self end
+    self._requestedSize, self._maximized = size, false
+    self:ClosePopups()
+    self._input:CancelPointer()
+    self:_refreshLayout()
     return self
 end
 
@@ -5482,7 +5828,8 @@ local function createModalButton(modal, config, index, count)
         Font = Enum.Font.GothamSemibold,
         AutoButtonColor = false,
         ZIndex = Z_INDEX.Modal + 2,
-        Parent = modal.Box,
+        Parent = modal._buttonHolder,
+        LayoutOrder = index,
         Theme = {
             BackgroundColor3 = config.Accent == false and "InputBg" or "Accent",
             TextColor3 = config.Accent == false and "LabelText" or "TabActiveText",
@@ -5500,7 +5847,7 @@ local function createModalButton(modal, config, index, count)
         config.Accent == false and "InputBg" or "Accent",
         config.Accent == false and "RowHover" or "AccentHover",
         config.Accent == false and "RowBg" or "AccentPress")
-    modal._tasks:Connect(button.MouseButton1Click, function()
+    modal._tasks:Connect(button.Activated, function()
         if type(config.Callback) == "function" then
             safeCall(config.Callback, modal)
         end
@@ -5517,7 +5864,7 @@ local function createModalSurface(window, config)
         BackgroundColor3 = Color3.new(0, 0, 0),
         BackgroundTransparency = 0.48,
         BorderSizePixel = 0,
-        Visible = config.Visible == true,
+        Visible = config.Visible == true, Active = true,
         ZIndex = Z_INDEX.Modal,
         Parent = window._screenGui,
     })
@@ -5541,13 +5888,19 @@ local function createModalSurface(window, config)
         TextXAlignment = Enum.TextXAlignment.Left, ZIndex = Z_INDEX.Modal + 2, Parent = box,
         Theme = { TextColor3 = "TitleText" },
     })
+    local messageScroll = UI.Create("ScrollingFrame", {
+        Size = UDim2.new(1, -32, 1, -92), Position = UDim2.fromOffset(16, 48),
+        BackgroundTransparency = 1, BorderSizePixel = 0, CanvasSize = UDim2.new(0, 0, 0, 0),
+        AutomaticCanvasSize = Enum.AutomaticSize.Y, ScrollBarThickness = 3,
+        ZIndex = Z_INDEX.Modal + 2, Parent = box,
+    })
     UI.Create("TextLabel", {
-        Size = UDim2.new(1, -32, 1, -92), Position = UDim2.fromOffset(16, 48), BackgroundTransparency = 1,
+        Size = UDim2.new(1, -4, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1,
         Text = normalizeText(config.Message, ""), TextSize = 13, Font = Enum.Font.Gotham, TextWrapped = true,
         TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top,
-        ZIndex = Z_INDEX.Modal + 2, Parent = box, Theme = { TextColor3 = "DescText" },
+        ZIndex = Z_INDEX.Modal + 2, Parent = messageScroll, Theme = { TextColor3 = "DescText" },
     })
-    return overlay, box
+    return overlay, box, messageScroll
 end
 
 local function installModalMethods(modal)
@@ -5562,6 +5915,7 @@ local function installModalMethods(modal)
     function modal:Destroy()
         if self._destroyed then return end
         self._destroyed = true
+        self._window._modals[self] = nil
         self._parentTasks:_forget(self)
         self._tasks:Destroy()
         if self.Instance.Parent ~= nil then self.Instance:Destroy() end
@@ -5573,6 +5927,7 @@ local function attachModal(window, modal)
     modal._tasks:Connect(modal.Instance.Destroying, function()
         if modal._destroyed then return end
         modal._destroyed = true
+        modal._window._modals[modal] = nil
         modal._parentTasks:_forget(modal)
         modal._tasks:Destroy()
     end)
@@ -5580,16 +5935,45 @@ end
 
 function WindowMethods:CreateModal(config)
     config = type(config) == "table" and config or {}
-    local overlay, box = createModalSurface(self, config)
+    local overlay, box, messageScroll = createModalSurface(self, config)
     local modal = {
-        Instance = overlay, Box = box, _tasks = TaskGroup.new("Modal"),
+        Instance = overlay, Box = box, _window = self, _tasks = TaskGroup.new("Modal"),
         _parentTasks = self._tasks, _destroyed = false,
     }
     installModalMethods(modal)
+    self._modals[modal] = true
     attachModal(self, modal)
 
     local buttons = type(config.Buttons) == "table" and config.Buttons or { { Text = "OK", Callback = config.Callback } }
     local count = math.min(#buttons, 8)
+    local footer = UI.Create("ScrollingFrame", {
+        Name = "ModalActions", BackgroundTransparency = 1, BorderSizePixel = 0,
+        CanvasSize = UDim2.new(0, 0, 0, 0), AutomaticCanvasSize = Enum.AutomaticSize.Y,
+        ScrollBarThickness = 3, ZIndex = Z_INDEX.Modal + 2, Parent = box,
+    })
+    local grid = UI.Create("UIGridLayout", {
+        CellPadding = UDim2.fromOffset(8, 8), SortOrder = Enum.SortOrder.LayoutOrder, Parent = footer,
+    })
+    modal._buttonHolder = footer
+    local function fitModal()
+        if modal._destroyed then return end
+        local _, viewport = MobileUI.Bounds(self._viewport)
+        local width = math.min(clamp(numberOr(config.Width, 360), 240, 800), math.max(1, viewport.X - 24))
+        local columns = math.max(1, math.min(math.max(count, 1), math.floor((width - 32) / 96)))
+        local actionHeight = self._touch and 44 or 30
+        local rows = math.ceil(count / columns)
+        local totalFooter = rows > 0 and (rows * (actionHeight + 8) - 8) or 0
+        local height = math.min(math.max(numberOr(config.Height, 180), totalFooter + 96), math.max(1, viewport.Y - 24))
+        local footerHeight = math.min(totalFooter, math.max(0, height - 100))
+        box.Size = UDim2.fromOffset(width, height)
+        grid.FillDirectionMaxCells = columns
+        grid.CellSize = UDim2.fromOffset(math.max(1, (width - 32 - (columns - 1) * 8) / columns), actionHeight)
+        footer.Size, footer.Position = UDim2.new(1, -32, 0, footerHeight), UDim2.new(0, 16, 1, -footerHeight - 14)
+        messageScroll.Size = UDim2.new(1, -32, 0, math.max(0, height - footerHeight - 72))
+    end
+    modal._fit = fitModal
+    modal._tasks:Connect(self._viewport:GetPropertyChangedSignal("AbsoluteSize"), fitModal)
+    fitModal()
     for index = 1, count do
         createModalButton(modal, buttons[index], index, count)
     end
@@ -5654,7 +6038,7 @@ end
 local function createTabNavigation(window, config, name)
     local button = UI.Create("TextButton", {
         Name = "Tab_" .. name:gsub("[^%w_]", ""),
-        Size = UDim2.new(1, 0, 0, 36),
+        Size = UDim2.new(1, 0, 0, window._touch and 44 or 36),
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
         Text = "",
@@ -5707,7 +6091,7 @@ local function createTabContent(window, name)
         Parent = scroll,
     })
     UI.List(content, Enum.FillDirection.Vertical, 16)
-    UI.Padding(content, 22, 24, 24, 24)
+    UI.Padding(content, 22, window._compact and 12 or 24, 24, window._compact and 12 or 24)
     return scroll, content
 end
 
@@ -5746,7 +6130,7 @@ local function wireTabNavigation(tab)
             UI.Tween(tab._button, { BackgroundTransparency = 1 }, TWEEN.Fast)
         end
     end)
-    tasks:Connect(tab._button.MouseButton1Click, function() window:_activateTab(tab, true) end)
+    tasks:Connect(tab._button.Activated, function() window:_activateTab(tab, true) end)
 end
 
 local function newTab(window, config)
@@ -5798,8 +6182,16 @@ local function newWindowState(title, screenGui, tasks, config)
         _components = {},
         _componentLists = {},
         _popups = {},
+        _modals = {},
         _disabledControls = disabledControlSet(config),
         _sidebarVisible = true,
+        _desktopSidebarVisible = true,
+        _mobileMode = (config.MobileMode == "Touch" or config.MobileMode == "Desktop") and config.MobileMode or "Auto",
+        _touch = MobileUI.TouchMode(config.MobileMode),
+        _mobileToggleEnabled = config.MobileToggle,
+        _requestedSize = config.Size,
+        _compact = false,
+        _titleHeight = DEFAULTS.TitleBarHeight,
         _minimized = false,
         _maximized = false,
         _pinned = false,
@@ -5817,21 +6209,54 @@ local function initializeWindowView(window, config)
     window._order = window._sidebarOrder
     window._winW = window._width
     window._winH = window._height
-    buildNavigationControls(window)
+    buildNavigationControls(window, config)
     buildUserInfo(window, config)
     createAcrylicBlur(window, config)
     window:_wireControls(config)
+    window:_refreshLayout()
     window:_attachDrag(config.DragStyle == 2 and window._frame or window._titleBar)
 end
 
 local function wireWindowLifecycle(window)
     local tasks, screenGui = window._tasks, window._screenGui
-    local camera = Workspace.CurrentCamera
-    if camera ~= nil then
-        tasks:Connect(camera:GetPropertyChangedSignal("ViewportSize"), function()
-            window:_clampToViewport()
+    local cameraConnection
+    local function updateViewport()
+        if window._destroyed then return end
+        window:ClosePopups()
+        window._input:CancelPointer()
+        window:_refreshLayout()
+    end
+    local function bindCamera()
+        if cameraConnection ~= nil then tasks:Cancel(cameraConnection); cameraConnection = nil end
+        local camera = Workspace.CurrentCamera
+        if camera ~= nil then cameraConnection = tasks:Connect(camera:GetPropertyChangedSignal("ViewportSize"), updateViewport) end
+        updateViewport()
+    end
+    tasks:Connect(Workspace:GetPropertyChangedSignal("CurrentCamera"), bindCamera)
+    tasks:Connect(window._viewport:GetPropertyChangedSignal("AbsoluteSize"), updateViewport)
+    tasks:Connect(window._viewport:GetPropertyChangedSignal("AbsolutePosition"), updateViewport)
+    tasks:Connect(UserInputService:GetPropertyChangedSignal("TouchEnabled"), function()
+        MobileUI.SafeScreen(screenGui, MobileUI.TouchMode(window._mobileMode))
+        updateViewport()
+    end)
+    local keyboardToken
+    local function updateKeyboard()
+        if window._destroyed then return end
+        window._input:CancelPointer()
+        window:_refreshLayout()
+        if keyboardToken ~= nil then tasks:Cancel(keyboardToken) end
+        keyboardToken = tasks:Delay(0.05, function()
+            keyboardToken = nil
+            MobileUI.RevealTextBox(UserInputService:GetFocusedTextBox(), screenGui)
         end)
     end
+    for _, property in ipairs({ "OnScreenKeyboardVisible", "OnScreenKeyboardPosition", "OnScreenKeyboardSize" }) do
+        local ok, signal = pcall(function() return UserInputService:GetPropertyChangedSignal(property) end)
+        if ok then tasks:Connect(signal, updateKeyboard) end
+    end
+    tasks:Connect(UserInputService.TextBoxFocused, updateKeyboard)
+    bindCamera()
+
     tasks:Connect(screenGui.Destroying, function()
         if not window._destroyed then
             window._destroyed = true
@@ -5865,7 +6290,7 @@ local function createWindow(config)
         if not configured then error("[CrispyLib] " .. tostring(configError), 2) end
     end
     local title = normalizeText(config.Title, "Crispy Hub")
-    local screenGui, guiError = createWindowScreenGui(title)
+    local screenGui, guiError = createWindowScreenGui(title, config)
     if screenGui == nil then
         error("[CrispyLib] cannot parent window: " .. tostring(guiError), 2)
     end
@@ -6361,7 +6786,7 @@ local function createToggleView(tab, config)
     local row = tab:_createRow()
     local nameLabel, descriptionLabel = tab:_createLabels(row, config.Name, config.Description)
     local track = UI.Create("Frame", {
-        Size = UDim2.fromOffset(46, 26),
+        Name = "ToggleTrack", Size = UDim2.fromOffset(46, 26),
         Position = UDim2.new(1, -62, 0.5, -13),
         BackgroundTransparency = 0.04,
         BorderSizePixel = 0,
@@ -6390,6 +6815,7 @@ local function createToggleView(tab, config)
         ZIndex = Z_INDEX.Content + 5,
         Parent = track,
     })
+    button.Size, button.Position = UDim2.new(1, 0, 0, 44), UDim2.new(0, 0, 0.5, -22)
     return row, nameLabel, descriptionLabel, track, knob, button, trackGradient
 end
 
@@ -6416,7 +6842,7 @@ local function installToggleMethods(component, button, track, config)
         button.Active = enabled
         UI.Tween(track, { BackgroundTransparency = enabled and 0 or 0.5 }, TWEEN.Fast)
     end
-    component._tasks:Connect(button.MouseButton1Click, function()
+    component._tasks:Connect(button.Activated, function()
         if component._enabled then
             component:Set(not component._value)
         end
@@ -6566,13 +6992,13 @@ local function createSliderComponent(tab, config, minimum, maximum, step)
     local nameLabel, descriptionLabel = tab:_createLabels(row, config.Name, config.Description)
     local trackWidth = clamp(numberOr(config.Width, 170), 120, 280)
     local valueLabel = UI.Create("TextLabel", {
-        Size = UDim2.fromOffset(trackWidth, 15), Position = UDim2.new(1, -(trackWidth + 16), 0, 13),
+        Name = "SliderValue", Size = UDim2.fromOffset(trackWidth, 15), Position = UDim2.new(1, -(trackWidth + 16), 0, 13),
         BackgroundTransparency = 1, Text = "", TextSize = 10, Font = Enum.Font.GothamBold,
         TextXAlignment = Enum.TextXAlignment.Right,
         ZIndex = Z_INDEX.Content + 3, Parent = row, Theme = { TextColor3 = "Accent" },
     })
     local track = UI.Create("Frame", {
-        Size = UDim2.fromOffset(trackWidth, 6), Position = UDim2.new(1, -(trackWidth + 16), 0.5, 7),
+        Name = "SliderTrack", Size = UDim2.fromOffset(trackWidth, 6), Position = UDim2.new(1, -(trackWidth + 16), 0.5, 7),
         BackgroundTransparency = 0.05,
         BorderSizePixel = 0, Active = true, ZIndex = Z_INDEX.Content + 3, Parent = row,
         Theme = { BackgroundColor3 = "ToggleOff" },
@@ -6600,6 +7026,11 @@ local function createSliderComponent(tab, config, minimum, maximum, step)
     component._value = snapNumber(config.Default, minimum, maximum, component._step)
     component._fill, component._knob, component._valueLabel = fill, knob, valueLabel
     component._track, component._callback = track, config.Callback
+    component._sliderHit = UI.Create("TextButton", {
+        Name = "SliderHit", Size = UDim2.new(1, 0, 0, 44), Position = UDim2.new(0, 0, 0.5, -22),
+        BackgroundTransparency = 1, Text = "", AutoButtonColor = false,
+        ZIndex = Z_INDEX.Content + 6, Parent = track,
+    })
     component._throttledCallback = makeThrottle(component._tasks, function(value)
         if type(component._callback) == "function" then safeCall(component._callback, value) end
     end, config.Throttle or 0.035)
@@ -6641,14 +7072,15 @@ function TabMethods:AddSlider(config)
     component.SetRange = function(self, minValue, maxValue) self._minimum, self._maximum = normalizedRange(minValue, maxValue, self._minimum, self._maximum); return setSliderValue(self, self._value, true, false) end
     component._applyEnabled = function(_, enabled)
         component._track.Active = enabled
+        component._sliderHit.Active = enabled
         UI.Tween(component._track, { BackgroundTransparency = enabled and 0.05 or 0.5 }, TWEEN.Fast)
     end
-    component._tasks:Connect(component._track.InputBegan, function(input)
+    component._tasks:Connect(component._sliderHit.InputBegan, function(input)
         if not component._enabled then return end
-        self._window._input:BeginPointer(input, function(position) updateSliderFromPosition(component, position) end, function()
+        local accepted = self._window._input:BeginPointer(input, function(position) updateSliderFromPosition(component, position) end, function()
             UI.Tween(component._knob, { Size = UDim2.fromOffset(18, 18) }, TWEEN.Fast)
         end, component)
-        UI.Tween(component._knob, { Size = UDim2.fromOffset(21, 21) }, TWEEN.Fast)
+        if accepted then UI.Tween(component._knob, { Size = UDim2.fromOffset(21, 21) }, TWEEN.Fast) end
     end)
     updateSliderVisual(component)
     registerComponentFlag(component, function() return component._value end, function(value) setSliderValue(component, value, true, false) end)
@@ -6710,7 +7142,7 @@ function TabMethods:AddButton(config)
             safeCall(config.Callback or function() end)
         end
     end, { Debounce = 0.25 })
-    component._tasks:Connect(button.MouseButton1Click, activate)
+    component._tasks:Connect(button.Activated, activate)
     return component
 end
 
@@ -6752,7 +7184,7 @@ local function installKeybindMethods(component, button, holder, window)
         local key = keyCodeFrom(value)
         local previous = self._key
         self._key = key
-        button.Text = key.Name
+        if self._updateKeyDisplay ~= nil then self._updateKeyDisplay() else button.Text = key.Name end
         if previous ~= key then
             if self.Flag ~= nil then State.Set(self.Flag, key.Name, self) else self:_FireChanged(key, previous) end
         end
@@ -6768,14 +7200,28 @@ local function installKeybindMethods(component, button, holder, window)
 end
 
 local function wireKeybind(component, button, stroke, window, callback)
+    local function displayKey()
+        local mobile = window._touch and component._configSettings.MobileAction ~= false
+        button.Text = mobile and "Run" or component._key.Name
+    end
+    function component:Trigger()
+        if self._enabled and not self._destroyed then
+            local action = window._touch and self._configSettings.TouchCallback or callback
+            safeCall(type(action) == "function" and action or callback or function() end, self._key)
+        end
+        return self
+    end
+    component._updateKeyDisplay = displayKey
+    displayKey()
     local function stopListening()
         component._listening = false
-        button.Text = component._key.Name
+        displayKey()
         button.TextColor3 = ThemeManager.Values.ValueText
         UI.Tween(stroke, { Color = ThemeManager.Values.Border }, TWEEN.Fast)
     end
-    component._tasks:Connect(button.MouseButton1Click, function()
+    component._tasks:Connect(button.Activated, function(input)
         if not component._enabled or component._listening then return end
+        if window._touch and component._configSettings.MobileAction ~= false then component:Trigger(); return end
         component._listening = true
         button.Text = "Press..."
         button.TextColor3 = ThemeManager.Values.Accent
@@ -6817,17 +7263,17 @@ local function createNumberInputComponent(tab, config, minimum, maximum, step)
     local nameLabel, descriptionLabel = tab:_createLabels(row, config.Name, config.Description)
     local holder = createControlFrame(row, 134, 30)
     local minusButton = UI.Create("TextButton", {
-        Size = UDim2.fromOffset(30, 30), BackgroundTransparency = 1, Text = "-", TextSize = 16,
+        Size = UDim2.new(0, tab._window._touch and 44 or 30, 1, 0), BackgroundTransparency = 1, Text = "-", TextSize = 16,
         Font = Enum.Font.GothamBold, AutoButtonColor = false, ZIndex = Z_INDEX.Content + 4, Parent = holder,
         Theme = { TextColor3 = "LabelText", BackgroundColor3 = "RowHover" },
     })
     local plusButton = UI.Create("TextButton", {
-        Size = UDim2.fromOffset(30, 30), Position = UDim2.new(1, -30, 0, 0), BackgroundTransparency = 1,
+        Size = UDim2.new(0, tab._window._touch and 44 or 30, 1, 0), Position = UDim2.new(1, tab._window._touch and -44 or -30, 0, 0), BackgroundTransparency = 1,
         Text = "+", TextSize = 16, Font = Enum.Font.GothamBold, AutoButtonColor = false,
         ZIndex = Z_INDEX.Content + 4, Parent = holder, Theme = { TextColor3 = "LabelText", BackgroundColor3 = "RowHover" },
     })
     local textBox = UI.Create("TextBox", {
-        Size = UDim2.new(1, -60, 1, 0), Position = UDim2.fromOffset(30, 0), BackgroundTransparency = 1,
+        Size = UDim2.new(1, tab._window._touch and -88 or -60, 1, 0), Position = UDim2.fromOffset(tab._window._touch and 44 or 30, 0), BackgroundTransparency = 1,
         Text = "", TextSize = 13, Font = Enum.Font.GothamBold, TextXAlignment = Enum.TextXAlignment.Center,
         ClearTextOnFocus = false, ZIndex = Z_INDEX.Content + 4, Parent = holder,
         Theme = { TextColor3 = "LabelText" },
@@ -6837,6 +7283,12 @@ local function createNumberInputComponent(tab, config, minimum, maximum, step)
     component._value = snapNumber(config.Default, minimum, maximum, step)
     component._holder, component._minusButton = holder, minusButton
     component._plusButton, component._textBox, component._callback = plusButton, textBox, config.Callback
+    component._layoutTouch = function()
+        local size = tab._window._touch and 44 or 30
+        minusButton.Size = UDim2.new(0, size, 1, 0)
+        plusButton.Size, plusButton.Position = UDim2.new(0, size, 1, 0), UDim2.new(1, -size, 0, 0)
+        textBox.Size, textBox.Position = UDim2.new(1, -size * 2, 1, 0), UDim2.fromOffset(size, 0)
+    end
     ThemeManager.Bind(holder, {
         BackgroundColor3 = function()
             return component._enabled and ThemeManager.Values.InputBg or ThemeManager.Values.DisabledBg
@@ -6865,10 +7317,10 @@ local function wireNumberInput(component)
     end
     UI.Hover(component._tasks, minusButton, "InputBg", "RowHover", "RowBg")
     UI.Hover(component._tasks, plusButton, "InputBg", "RowHover", "RowBg")
-    component._tasks:Connect(minusButton.MouseButton1Click, function()
+    component._tasks:Connect(minusButton.Activated, function()
         if component._enabled then setNumberInputValue(component, component._value - component._step, false) end
     end)
-    component._tasks:Connect(plusButton.MouseButton1Click, function()
+    component._tasks:Connect(plusButton.Activated, function()
         if component._enabled then setNumberInputValue(component, component._value + component._step, false) end
     end)
     component._tasks:Connect(textBox.FocusLost, function()
@@ -6954,18 +7406,13 @@ end
 
 local function positionDropdown(component, targetHeight)
     local anchor = component._dropdownButton
-    local popup = component._popup
-    local viewport = viewportSize()
-    local absolute = anchor.AbsolutePosition
-    local size = anchor.AbsoluteSize
-    local width = popup.Size.X.Offset
-    local x = clamp(absolute.X + size.X - width, 6, math.max(6, viewport.X - width - 6))
-    local belowY = absolute.Y + size.Y + 5
-    local y = belowY + targetHeight <= viewport.Y - 6 and belowY or (absolute.Y - targetHeight - 5)
-    popup.Position = UDim2.fromOffset(x, math.max(6, y))
+    local x, y, width, height = MobileUI.PopupRect(component._tab._window._viewport,
+        anchor.AbsolutePosition, anchor.AbsoluteSize, component._popupWidth, targetHeight)
+    component._popup.Position = UDim2.fromOffset(x, y)
+    return width, height
 end
 
-local function setDropdownOpen(component, open)
+local function setDropdownOpen(component, open, reflow)
     if component._destroyed then return end
     if open and not component._enabled then return end
     if component._closeToken ~= nil then
@@ -6974,20 +7421,30 @@ local function setDropdownOpen(component, open)
     end
     component._open = open == true
     if component._open then
-        component._tab._window:ClosePopups(component._popup)
+        if not reflow then
+            component._tab._window:ClosePopups(component._popup)
+            component._searchBox.Text = ""
+            component:_rebuildOptions("")
+        end
         component._popup.Visible = true
-        component._searchBox.Text = ""
-        component:_rebuildOptions("")
-        local headerHeight = component._multi and 84 or 46
+        local touch = component._tab._window._touch
+        local headerHeight = touch and (component._multi and 116 or 62) or (component._multi and 84 or 46)
         local rows = math.min(component._renderedOptions, component._visibleLimit)
-        local targetHeight = clamp(headerHeight + (rows * 31), headerHeight + 32, 330)
-        positionDropdown(component, targetHeight)
-        component._popup.Size = UDim2.fromOffset(component._popupWidth, 0)
-        UI.Tween(component._popup, { Size = UDim2.fromOffset(component._popupWidth, targetHeight) }, TWEEN.Medium)
+        local targetHeight = clamp(headerHeight + (rows * (touch and 46 or 31)), headerHeight + 32, touch and 380 or 330)
+        local width, height = positionDropdown(component, targetHeight)
+        component._searchHolder.Size = UDim2.new(1, -16, 0, touch and 44 or 30)
+        component._optionScroll.Position = UDim2.fromOffset(4, touch and 58 or 42)
+        component._optionScroll.Size = UDim2.new(1, -8, 1, -headerHeight)
+        if component._doneButton ~= nil then
+            component._doneButton.Size = UDim2.new(1, -16, 0, touch and 44 or 30)
+            component._doneButton.Position = UDim2.new(0, 8, 1, touch and -51 or -37)
+        end
+        if not reflow then component._popup.Size = UDim2.fromOffset(width, 0) end
+        UI.Tween(component._popup, { Size = UDim2.fromOffset(width, height) }, reflow and TWEEN.Instant or TWEEN.Medium)
         UI.Tween(component._dropdownStroke, { Color = ThemeManager.Values.FocusBorder }, TWEEN.Fast)
         UI.Tween(component._chevron, { Rotation = 180 }, TWEEN.Medium)
     else
-        UI.Tween(component._popup, { Size = UDim2.fromOffset(component._popupWidth, 0) }, TWEEN.Medium)
+        UI.Tween(component._popup, { Size = UDim2.fromOffset(component._popup.Size.X.Offset, 0) }, TWEEN.Medium)
         UI.Tween(component._dropdownStroke, { Color = ThemeManager.Values.Border }, TWEEN.Fast)
         UI.Tween(component._chevron, { Rotation = 0 }, TWEEN.Medium)
         component._closeToken = component._tasks:Delay(0.22, function()
@@ -7033,7 +7490,7 @@ local function createDropdownSearch(popup)
         ZIndex = Z_INDEX.Popup + 2, Parent = searchHolder,
         Theme = { TextColor3 = "LabelText", PlaceholderColor3 = "Placeholder" },
     })
-    return searchBox, searchStroke
+    return searchBox, searchStroke, searchHolder
 end
 
 local function createDropdownOptionList(component, popup)
@@ -7075,14 +7532,16 @@ local function createDropdownDoneButton(component, popup)
     })
     UI.Round(doneButton, 7)
     UI.Hover(component._tasks, doneButton, "Accent", "AccentHover", "AccentPress")
-    component._tasks:Connect(doneButton.MouseButton1Click, function()
+    component._doneButton = doneButton
+    component._tasks:Connect(doneButton.Activated, function()
         setDropdownOpen(component, false)
     end)
 end
 
 local function createDropdownPopup(component)
     local popup = createDropdownPopupSurface(component)
-    local searchBox, searchStroke = createDropdownSearch(popup)
+    local searchBox, searchStroke, searchHolder = createDropdownSearch(popup)
+    component._searchHolder = searchHolder
     local scroll, content = createDropdownOptionList(component, popup)
     component._popup, component._searchBox = popup, searchBox
     component._optionScroll, component._optionContent = scroll, content
@@ -7091,6 +7550,8 @@ local function createDropdownPopup(component)
     component._tasks:Add(popup)
     local unregister = component._tab._window:RegisterPopup(popup, function()
         setDropdownOpen(component, false)
+    end, function()
+        if component._open then setDropdownOpen(component, true, true) end
     end)
     component._tasks:Add(unregister)
 end
@@ -7122,7 +7583,7 @@ end
 
 local function createDropdownOption(component, option, order, selected)
     local optionButton = UI.Create("TextButton", {
-        Size = UDim2.new(1, 0, 0, 30), BackgroundTransparency = selected and 0.78 or 1,
+        Size = UDim2.new(1, 0, 0, component._tab._window._touch and 44 or 30), BackgroundTransparency = selected and 0.78 or 1,
         BorderSizePixel = 0, Text = tostring(option), TextSize = 12, Font = Enum.Font.Gotham,
         TextXAlignment = Enum.TextXAlignment.Left, AutoButtonColor = false,
         LayoutOrder = order, ZIndex = Z_INDEX.Popup + 2, Parent = component._optionContent,
@@ -7136,7 +7597,7 @@ local function createDropdownOption(component, option, order, selected)
     component._optionTasks:Connect(optionButton.MouseLeave, function()
         if not selected then UI.Tween(optionButton, { BackgroundTransparency = 1 }, TWEEN.Fast) end
     end)
-    component._optionTasks:Connect(optionButton.MouseButton1Click, function()
+    component._optionTasks:Connect(optionButton.Activated, function()
         selectDropdownOption(component, option)
     end)
 end
@@ -7273,7 +7734,7 @@ function TabMethods:AddDropdown(config)
         ThemeManager.ApplyBinding(component._dropdownButton, ThemeManager._bindings[component._dropdownButton])
         if not enabled then setDropdownOpen(component, false) end
     end
-    component._tasks:Connect(component._dropdownButton.MouseButton1Click, function()
+    component._tasks:Connect(component._dropdownButton.Activated, function()
         if component._enabled then setDropdownOpen(component, not component._open) end
     end)
     component._tasks:Add(function() if component._optionTasks ~= nil then component._optionTasks:Destroy() end end)
@@ -7367,7 +7828,7 @@ local function createProgressComponent(tab, config, minimum, maximum, percentMod
     local row = tab:_createRow()
     local nameLabel, descriptionLabel = tab:_createLabels(row, config.Name, config.Description)
     local track = UI.Create("Frame", {
-        Size = UDim2.fromOffset(174, 10), Position = UDim2.new(1, -190, 0.5, -5),
+        Name = "ProgressTrack", Size = UDim2.fromOffset(174, 10), Position = UDim2.new(1, -190, 0.5, -5),
         BackgroundTransparency = 0.08, BorderSizePixel = 0,
         ZIndex = Z_INDEX.Content + 3, Parent = row,
         Theme = { BackgroundColor3 = "ToggleOff" },
@@ -7381,7 +7842,7 @@ local function createProgressComponent(tab, config, minimum, maximum, percentMod
     UI.Round(fill, 5)
     UI.Gradient(fill, "AccentGradientStart", "AccentGradientEnd", 0, 0)
     local valueLabel = UI.Create("TextLabel", {
-        Size = UDim2.fromOffset(174, 17), Position = UDim2.new(1, -190, 0.5, 7),
+        Name = "ProgressValue", Size = UDim2.fromOffset(174, 17), Position = UDim2.new(1, -190, 0.5, 7),
         BackgroundTransparency = 1, Text = "", TextSize = 10, Font = Enum.Font.GothamSemibold,
         TextXAlignment = Enum.TextXAlignment.Right, ZIndex = Z_INDEX.Content + 4,
         Parent = row, Theme = { TextColor3 = "ValueText" },
@@ -7509,7 +7970,9 @@ end
 local function createSegmentedView(tab, config, width)
     local row = tab:_createRow()
     local nameLabel, descriptionLabel = tab:_createLabels(row, config.Name, config.Description)
-    local holder = UI.Create("Frame", {
+    local holder = UI.Create("ScrollingFrame", {
+        CanvasSize = UDim2.new(0, 0, 0, 0), AutomaticCanvasSize = Enum.AutomaticSize.X,
+        ScrollingDirection = Enum.ScrollingDirection.X, ScrollBarThickness = 0,
         Size = UDim2.fromOffset(width, 30), Position = UDim2.new(1, -(width + 16), 0.5, -15),
         BackgroundTransparency = ThemeManager.Values.InputTransparency,
         BorderSizePixel = 0, ZIndex = Z_INDEX.Content + 3, Parent = row,
@@ -7547,7 +8010,7 @@ local function createSegmentButton(component, holder, option, index, count)
                 and ThemeManager.Values.TabActiveText or ThemeManager.Values.ValueText
         end,
     })
-    component._tasks:Connect(button.MouseButton1Click, function()
+    component._tasks:Connect(button.Activated, function()
         if component._enabled then component:Set(option) end
     end)
 end
@@ -7583,6 +8046,18 @@ function TabMethods:AddSegmentedControl(config)
     for index = 1, math.min(#options, 16) do
         createSegmentButton(component, holder, options[index], index, count)
     end
+    local function layoutSegments()
+        if component._destroyed then return end
+        local available = holder.AbsoluteSize.X
+        if available <= 0 then available = width end
+        local touch = component._tab._window._touch
+        for _, entry in ipairs(component._segmentButtons) do
+            entry.Button.Size = UDim2.new(0, math.max(touch and 72 or 44, available / count - (count > 1 and 2 or 0)), 1, 0)
+        end
+    end
+    component._tasks:Connect(holder:GetPropertyChangedSignal("AbsoluteSize"), layoutSegments)
+    component._layoutTouch = layoutSegments
+    layoutSegments()
     installSegmentedMethods(component, options, config.Callback)
     redrawSegments(component)
     registerComponentFlag(component, function() return component._selected end, function(value) component:Set(value, true) end)
@@ -7640,6 +8115,11 @@ local function createChipComponent(tab, config, options, selected, multi)
     component._chipOptions, component._chipSelected = options, selected
     component._chipButtons, component._multi = {}, multi
     component._chipContent, component._callback = content, config.Callback
+    component._layoutTouch = function()
+        for _, entry in ipairs(component._chipButtons) do
+            entry.Button.Size = UDim2.fromOffset(entry.Button.Size.X.Offset, tab._window._touch and 44 or 30)
+        end
+    end
     return component
 end
 
@@ -7663,7 +8143,7 @@ end
 local function addChipButton(component, option, index)
     local text = tostring(option)
     local button = UI.Create("TextButton", {
-        Size = UDim2.fromOffset(clamp((#text * 7) + 20, 42, 180), 30),
+        Size = UDim2.fromOffset(clamp((#text * 7) + 20, 44, 180), component._tab._window._touch and 44 or 30),
         BackgroundTransparency = ThemeManager.Values.InputTransparency,
         BorderSizePixel = 0, Text = text, TextSize = 11, Font = Enum.Font.GothamSemibold,
         AutoButtonColor = false, LayoutOrder = index, ZIndex = Z_INDEX.Content + 4,
@@ -7682,7 +8162,7 @@ local function addChipButton(component, option, index)
         TextColor3 = function() return selectionContains(component._chipSelected, entry.Value)
             and ThemeManager.Values.TabActiveText or ThemeManager.Values.ValueText end,
     })
-    component._tasks:Connect(button.MouseButton1Click, function()
+    component._tasks:Connect(button.Activated, function()
         if component._enabled then toggleChip(component, option) end
     end)
 end
@@ -7763,7 +8243,7 @@ end
 
 local function createSaturationValueArea(component, popup, context)
     local area = UI.Create("Frame", {
-        Size = UDim2.new(1, -24, 0, 170), Position = UDim2.fromOffset(12, 46),
+        Size = UDim2.new(1, -24, 0, context.SVHeight), Position = UDim2.fromOffset(12, context.SVTop),
         BackgroundColor3 = Color3.fromHSV(context.Hue, 1, 1), BorderSizePixel = 0,
         Active = true, ZIndex = Z_INDEX.Popup + 2, Parent = popup,
     })
@@ -7821,7 +8301,7 @@ end
 
 local function createHueArea(component, popup, context)
     local hueBar = UI.Create("Frame", {
-        Size = UDim2.new(1, -24, 0, 14), Position = UDim2.fromOffset(12, 226),
+        Size = UDim2.new(1, -24, 0, 14), Position = UDim2.fromOffset(12, context.HueTop + (context.Touch and 15 or 0)),
         BorderSizePixel = 0, Active = true, ZIndex = Z_INDEX.Popup + 2, Parent = popup,
     })
     UI.Round(hueBar, 7)
@@ -7848,6 +8328,7 @@ local function createHueArea(component, popup, context)
         Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1,
         Text = "", AutoButtonColor = false, ZIndex = Z_INDEX.Popup + 5, Parent = hueBar,
     })
+    if context.Touch then hit.Size, hit.Position = UDim2.new(1, 0, 0, 44), UDim2.fromOffset(0, -15) end
     context.HueKnob = knob
     context.Group:Connect(hit.InputBegan, function(input)
         component._tab._window._input:BeginPointer(input, function(position)
@@ -7859,7 +8340,7 @@ end
 
 local function createColorPickerActions(popup, context)
     local cancelButton = UI.Create("TextButton", {
-        Size = UDim2.new(0.5, -15, 0, 30), Position = UDim2.fromOffset(12, 292),
+        Size = UDim2.new(0.5, -15, 0, context.Touch and 44 or 30), Position = UDim2.fromOffset(12, context.ActionsTop),
         BorderSizePixel = 0, Text = "Cancel", TextSize = 12, Font = Enum.Font.GothamSemibold,
         AutoButtonColor = false, ZIndex = Z_INDEX.Popup + 2, Parent = popup,
         Theme = {
@@ -7869,7 +8350,7 @@ local function createColorPickerActions(popup, context)
         },
     })
     local applyButton = UI.Create("TextButton", {
-        Size = UDim2.new(0.5, -15, 0, 30), Position = UDim2.new(0.5, 3, 0, 292),
+        Size = UDim2.new(0.5, -15, 0, context.Touch and 44 or 30), Position = UDim2.new(0.5, 3, 0, context.ActionsTop),
         BorderSizePixel = 0, Text = "Apply", TextSize = 12, Font = Enum.Font.GothamSemibold,
         AutoButtonColor = false, ZIndex = Z_INDEX.Popup + 2, Parent = popup,
         Theme = { BackgroundColor3 = "Accent", TextColor3 = "TabActiveText" },
@@ -7882,20 +8363,20 @@ local function createColorPickerActions(popup, context)
     UI.Gradient(applyButton, "AccentGradientStart", "AccentGradientEnd", 15, 0)
     UI.Hover(context.Group, cancelButton, "InputBg", "RowHover", "RowBg")
     UI.Hover(context.Group, applyButton, "Accent", "AccentHover", "AccentPress")
-    context.Group:Connect(cancelButton.MouseButton1Click, function() context.Close(false) end)
-    context.Group:Connect(applyButton.MouseButton1Click, function() context.Close(true) end)
+    context.Group:Connect(cancelButton.Activated, function() context.Close(false) end)
+    context.Group:Connect(applyButton.Activated, function() context.Close(true) end)
 end
 
 local function createColorPickerFooter(popup, context)
     local preview = UI.Create("Frame", {
-        Size = UDim2.fromOffset(42, 30), Position = UDim2.fromOffset(12, 252),
+        Size = UDim2.fromOffset(42, context.Touch and 44 or 30), Position = UDim2.fromOffset(12, context.FooterTop),
         BackgroundColor3 = context.TempColor, BorderSizePixel = 0,
         ZIndex = Z_INDEX.Popup + 2, Parent = popup,
     })
     UI.Round(preview, 7)
     UI.Stroke(preview)
     local hexHolder = UI.Create("Frame", {
-        Size = UDim2.new(1, -72, 0, 30), Position = UDim2.fromOffset(62, 252),
+        Size = UDim2.new(1, -72, 0, context.Touch and 44 or 30), Position = UDim2.fromOffset(62, context.FooterTop),
         BackgroundTransparency = ThemeManager.Values.InputTransparency,
         BorderSizePixel = 0, ZIndex = Z_INDEX.Popup + 2, Parent = popup,
         Theme = { BackgroundColor3 = "InputBg", BackgroundTransparency = "InputTransparency" },
@@ -7931,8 +8412,19 @@ end
 local function openColorPicker(component)
     if component._pickerContext ~= nil or not component._enabled then return end
     component._tab._window:ClosePopups()
+    local window = component._tab._window
+    local _, viewport = MobileUI.Bounds(window._viewport)
+    local touch = window._touch
+    local svTop = touch and 54 or 46
+    local svHeight = math.max(44, math.min(170, viewport.Y - 12 - (touch and 228 or 164)))
+    local hueTop = svTop + svHeight + 10
+    local footerTop = hueTop + (touch and 44 or 14) + (touch and 10 or 12)
+    local actionsTop = footerTop + (touch and 44 or 30) + 10
+    local canvasHeight = actionsTop + (touch and 44 or 30) + 12
+    local x, y, width, height = MobileUI.PopupRect(window._viewport,
+        component._swatchButton.AbsolutePosition, component._swatchButton.AbsoluteSize, 270, canvasHeight)
     local popup = UI.Create("Frame", {
-        Name = "ColorPickerPopup", Size = UDim2.fromOffset(270, 334),
+        Name = "ColorPickerPopup", Size = UDim2.fromOffset(width, height), ClipsDescendants = true,
         BackgroundTransparency = ThemeManager.Values.PopupTransparency,
         BorderSizePixel = 0, ZIndex = Z_INDEX.Popup, Parent = component._tab._window._screenGui,
         Theme = { BackgroundColor3 = "PopupBg", BackgroundTransparency = "PopupTransparency" },
@@ -7940,29 +8432,35 @@ local function openColorPicker(component)
     UI.Round(popup, 16)
     UI.Stroke(popup, nil, 1, 0.34)
     UI.Gradient(popup, "WindowGradientStart", "WindowGradientEnd", 130, 0.06)
-    local position = component._swatchButton.AbsolutePosition
-    local viewport = viewportSize()
-    popup.Position = UDim2.fromOffset(
-        clamp(position.X - 150, 6, math.max(6, viewport.X - 276)),
-        clamp(position.Y + 34, 6, math.max(6, viewport.Y - 340))
-    )
+    popup.Position = UDim2.fromOffset(x, y)
+    local scroll = UI.Create("ScrollingFrame", {
+        Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, BorderSizePixel = 0,
+        CanvasSize = UDim2.new(0, 0, 0, canvasHeight), ScrollBarThickness = 3,
+        ScrollingDirection = Enum.ScrollingDirection.Y, ZIndex = Z_INDEX.Popup + 1, Parent = popup,
+    })
+    local canvas = UI.Create("Frame", {
+        Size = UDim2.new(1, -4, 0, canvasHeight), BackgroundTransparency = 1,
+        ZIndex = Z_INDEX.Popup + 1, Parent = scroll,
+    })
+
     UI.Create("TextLabel", {
         Size = UDim2.new(1, -44, 0, 38), Position = UDim2.fromOffset(12, 2),
         BackgroundTransparency = 1, Text = "Choose Color", TextSize = 14,
         Font = Enum.Font.GothamBold, TextXAlignment = Enum.TextXAlignment.Left,
-        ZIndex = Z_INDEX.Popup + 2, Parent = popup, Theme = { TextColor3 = "TitleText" },
+        ZIndex = Z_INDEX.Popup + 2, Parent = canvas, Theme = { TextColor3 = "TitleText" },
     })
     local closeButton = UI.Create("TextButton", {
         Size = UDim2.fromOffset(28, 28), Position = UDim2.new(1, -34, 0, 6),
         BackgroundTransparency = 1, Text = "x", TextSize = 12, Font = Enum.Font.GothamBold,
-        AutoButtonColor = false, ZIndex = Z_INDEX.Popup + 3, Parent = popup,
+        AutoButtonColor = false, ZIndex = Z_INDEX.Popup + 3, Parent = canvas,
         Theme = { TextColor3 = "SubtitleText" },
     })
 
     local hue, saturation, value = component._value:ToHSV()
     local group = TaskGroup.new("ColorPickerPopup")
     local context = {
-        Popup = popup,
+        Popup = popup, _root = canvas,
+        Touch = touch, SVTop = svTop, SVHeight = svHeight, HueTop = hueTop, FooterTop = footerTop, ActionsTop = actionsTop,
         Group = group,
         Hue = hue,
         Saturation = saturation,
@@ -7980,12 +8478,18 @@ local function openColorPicker(component)
         group:Destroy()
         if popup.Parent ~= nil then popup:Destroy() end
     end
-    createSaturationValueArea(component, popup, context)
-    createHueArea(component, popup, context)
-    createColorPickerFooter(popup, context)
+    if touch then closeButton.Size, closeButton.Position = UDim2.fromOffset(44, 44), UDim2.new(1, -50, 0, 0) end
+    createSaturationValueArea(component, canvas, context)
+    createHueArea(component, canvas, context)
+    createColorPickerFooter(canvas, context)
     updateColorPickerUi(context)
-    group:Connect(closeButton.MouseButton1Click, function() context.Close(false) end)
-    unregister = component._tab._window:RegisterPopup(popup, function() context.Close(false) end)
+    group:Connect(closeButton.Activated, function() context.Close(false) end)
+    unregister = component._tab._window:RegisterPopup(popup, function() context.Close(false) end, function()
+        if component._pickerContext ~= context then return end
+        local px, py, pw, ph = MobileUI.PopupRect(window._viewport,
+            component._swatchButton.AbsolutePosition, component._swatchButton.AbsoluteSize, 270, canvasHeight)
+        popup.Position, popup.Size = UDim2.fromOffset(px, py), UDim2.fromOffset(pw, ph)
+    end)
 end
 
 function TabMethods:AddColorPicker(config)
@@ -8038,7 +8542,7 @@ function TabMethods:AddColorPicker(config)
         button.BackgroundColor3 = enabled and ThemeManager.Values.InputBg or ThemeManager.Values.DisabledBg
         if not enabled and component._pickerContext ~= nil then component._pickerContext.Close(false) end
     end
-    component._tasks:Connect(button.MouseButton1Click, function()
+    component._tasks:Connect(button.Activated, function()
         if component._enabled then openColorPicker(component) end
     end)
     component._tasks:Add(function()
@@ -8071,7 +8575,7 @@ local function buildPanelAction(panel, rowObject, area, action, order)
         danger and "DangerBg" or "InputBg",
         danger and "DangerHover" or "RowHover",
         danger and "DangerBg" or "RowBg")
-    rowObject._tasks:Connect(button.MouseButton1Click, function()
+    rowObject._tasks:Connect(button.Activated, function()
         safeCall(action.Callback or function() end, rowObject, panel)
     end)
 end
@@ -8190,7 +8694,7 @@ local function wirePanelRow(rowObject, hit, actionCount)
         if not rowObject._open then UI.Tween(root, { BackgroundColor3 = ThemeManager.Values.RowBg }, TWEEN.Fast) end
     end)
     if actionCount > 0 then
-        tasks:Connect(hit.MouseButton1Click, function() setPanelRowOpen(rowObject, not rowObject._open) end)
+        tasks:Connect(hit.Activated, function() setPanelRowOpen(rowObject, not rowObject._open) end)
     end
     rowObject.SetLabel = function(self, text) self._label.Text = normalizeText(text, ""); return self end
     rowObject.SetSubtext = function(self, text) self._subtext.Text = normalizeText(text, ""); return self end
@@ -8390,7 +8894,7 @@ function TabMethods:AddLogBox(config)
         return table.concat(lines, "\n")
     end
     function component:GetFrame() return wrapper end
-    component._tasks:Connect(clearButton.MouseButton1Click, function() component:Clear() end)
+    component._tasks:Connect(clearButton.Activated, function() component:Clear() end)
     return component
 end
 
@@ -8875,7 +9379,7 @@ local function createGridButton(component, config)
     })
     button.Active = component._enabled and not component._gridDisabled
     button.TextTransparency = button.Active and 0 or 0.5
-    tasks:Connect(button.MouseButton1Click, function()
+    tasks:Connect(button.Activated, function()
         if component._enabled and not component._gridDisabled and type(config.Callback) == "function" then
             safeCall(config.Callback, object, component)
         end
@@ -8986,7 +9490,7 @@ local function createExpandableButton(component, config)
     })
     button.Active = component._enabled
     button.TextTransparency = component._enabled and 0 or 0.5
-    tasks:Connect(button.MouseButton1Click, function()
+    tasks:Connect(button.Activated, function()
         if component._enabled and type(config.Callback) == "function" then
             safeCall(config.Callback, component, object)
         end
@@ -9129,7 +9633,7 @@ function TabMethods:AddExpandableItem(config)
     component.Remove = function(self) self:Destroy() end
     component._applyEnabled = setExpandableEnabled
     local header, layout, buttonArea = component._header, component._buttonLayout, component._buttonArea
-    component._tasks:Connect(header.MouseButton1Click, function()
+    component._tasks:Connect(header.Activated, function()
         if not component._enabled then return end
         component:Toggle()
         if type(component._onSelect) == "function" then safeCall(component._onSelect, component) end
@@ -9222,13 +9726,14 @@ local function createLoaderRoot()
         return nil, err
     end
 
+    MobileUI.SafeScreen(screenGui, MobileUI.TouchMode("Auto"))
     local background = UI.Create("Frame", {
         Size = UDim2.new(1, 0, 1, 0), BorderSizePixel = 0,
         ZIndex = 1, Parent = screenGui, Theme = { BackgroundColor3 = "LoaderBg" },
     })
     UI.Gradient(background, "WindowGradientStart", "WindowGradientEnd", 140, 0)
     local center = UI.Create("Frame", {
-        Size = UDim2.fromOffset(420, 320), Position = UDim2.new(0.5, -210, 0.5, -160),
+        Size = UDim2.fromOffset(420, 320), AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0.5, 0),
         BackgroundTransparency = ThemeManager.Values.PanelTransparency,
         BorderSizePixel = 0, ZIndex = 2, Parent = background,
         Theme = { BackgroundColor3 = "RowBg", BackgroundTransparency = "PanelTransparency" },
@@ -9396,6 +9901,13 @@ local function createLoadingScreen(config)
         if not self._destroyed then self._ui.Status.Text = normalizeText(text, "") end
         return self
     end
+    local panelScale = UI.Create("UIScale", { Scale = 1, Parent = ui.Center })
+    local function fitLoader()
+        local _, viewport = MobileUI.Bounds(ui.Background)
+        panelScale.Scale = math.max(0.01, math.min(1, (viewport.X - 24) / 420, (viewport.Y - 24) / 320))
+    end
+    group:Connect(ui.Background:GetPropertyChangedSignal("AbsoluteSize"), fitLoader)
+    fitLoader()
     local pulseOk, pulse = pcall(function()
         return TweenService:Create(ui.Fill,
             TweenInfo.new(0.9, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
